@@ -99,18 +99,18 @@ export class IsometricPlayer {
     let newIsoX = this.isoX;
     let newIsoY = this.isoY;
 
-    // Isometric movement directions
+    // Corrected, more intuitive isometric movement directions
     if (cursors.up.isDown || wasd.W.isDown) {
-      newIsoY -= 1; // Move north
+      newIsoX -= 1; // Move North-West (Up-Left on screen)
     }
     if (cursors.down.isDown || wasd.S.isDown) {
-      newIsoY += 1; // Move south
+      newIsoX += 1; // Move South-East (Down-Right on screen)
     }
     if (cursors.left.isDown || wasd.A.isDown) {
-      newIsoX -= 1; // Move west
+      newIsoY += 1; // Move South-West (Down-Left on screen)
     }
     if (cursors.right.isDown || wasd.D.isDown) {
-      newIsoX += 1; // Move east
+      newIsoY -= 1; // Move North-East (Up-Right on screen)
     }
 
     // Only move if position changed

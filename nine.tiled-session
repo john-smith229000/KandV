@@ -1,0 +1,20 @@
+{
+    "Map/SizeTest": {
+        "height": 4300,
+        "width": 2
+    },
+    "activeFile": "",
+    "expandedProjectPaths": [
+    ],
+    "fileStates": {
+    },
+    "last.imagePath": "C:/Users/vince/Desktop/K+V/client/public/images/tiles/isometric tileset",
+    "map.height": 30,
+    "map.lastUsedFormat": "json",
+    "openFiles": [
+    ],
+    "project": "nine.tiled-project",
+    "recentFiles": [
+    ],
+    "tileset.lastUsedFormat": "tsx"
+}
