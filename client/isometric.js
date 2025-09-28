@@ -44,51 +44,104 @@ export class IsometricHelper {
   }
 }
 
-// Example usage for isometric movement
+// Updated player class for staggered maps with collision detection
 export class IsometricPlayer {
-  constructor(scene, startIsoX = 0, startIsoY = 0) {
+  constructor(scene, startIsoX = 15, startIsoY = 18) { // Start on a tile with data
     this.scene = scene;
-    this.isoHelper = new IsometricHelper();
+    this.tilemap = null; // Will be set from the scene
     
-    // Isometric position
-    this.isoX = startIsoX;
-    this.isoY = startIsoY;
+    // Grid position (in tile coordinates) - start on a visible tile
+    this.gridX = startIsoX;
+    this.gridY = startIsoY;
     
-    // Create sprite
-    this.sprite = scene.add.rectangle(0, 0, 32, 32, 0xff0000);
+    // Create sprite - change the size here (width, height)
+    this.sprite = scene.add.rectangle(0, 0, 16, 16, 0xff0000);
     this.updatePosition();
     
     // Movement speed
-    this.moveSpeed = 2; // tiles per second
+    this.moveSpeed = 500; // milliseconds per move
     this.isMoving = false;
   }
 
-  updatePosition() {
-    const screenPos = this.isoHelper.isoToScreen(this.isoX, this.isoY);
-    this.sprite.setPosition(screenPos.x + 400, screenPos.y + 200); // Center on screen
+  // Set the tilemap reference so we can check tile data
+  setTilemap(tilemap) {
+    this.tilemap = tilemap;
   }
 
-  moveToIsoPosition(targetIsoX, targetIsoY) {
+  // Check if a grid position has a valid tile (non-zero data)
+  isValidTile(gridX, gridY) {
+    if (!this.tilemap) return true; // If no tilemap, allow movement
+    
+    // Get the tile at this position
+    const tile = this.tilemap.getTileAt(gridX, gridY, false, 'Tile Layer 1');
+    
+    console.log(`Checking tile at (${gridX}, ${gridY}):`, tile ? `index=${tile.index}` : 'null');
+    
+    // Return true if tile exists and has non-zero data
+    return tile && tile.index > 0;
+  }
+
+  // Convert grid coordinates to world position for staggered maps
+  gridToWorldPosition(gridX, gridY) {
+    const tileWidth = 32;
+    const tileHeight = 32;
+    
+    // Staggered isometric positioning
+    let worldX = gridX * tileWidth;
+    let worldY = gridY * (tileHeight / 2);
+    
+    // Offset every other row (stagger effect)
+    if (gridY % 2 === 1) {
+      worldX += tileWidth / 2;
+    }
+    
+    return { x: worldX, y: worldY };
+  }
+
+  updatePosition() {
+    const worldPos = this.gridToWorldPosition(this.gridX, this.gridY);
+    // Center the view and add some offset
+    this.sprite.setPosition(worldPos.x + 400, worldPos.y + 100);
+  }
+
+  moveToGridPosition(targetGridX, targetGridY) {
     if (this.isMoving) return;
     
+    // TEMPORARY: Disable collision checking for testing
+    // Comment out these lines once we figure out the tile checking
+    /*
+    // Check if the target position has a valid tile (non-zero data)
+    if (!this.isValidTile(targetGridX, targetGridY)) {
+      console.log(`Move blocked: No valid tile at (${targetGridX}, ${targetGridY})`);
+      return;
+    }
+    */
+    
+    // Expanded bounds checking - allow some negative coordinates for isometric view
+    if (targetGridX < -5 || targetGridX >= 35 || targetGridY < -5 || targetGridY >= 35) {
+      console.log(`Move rejected: (${targetGridX}, ${targetGridY}) out of bounds`);
+      return;
+    }
+    
     this.isMoving = true;
-    const startX = this.isoX;
-    const startY = this.isoY;
+    const startWorldPos = this.gridToWorldPosition(this.gridX, this.gridY);
+    const endWorldPos = this.gridToWorldPosition(targetGridX, targetGridY);
     
     // Smooth movement tween
     this.scene.tweens.add({
-      targets: this,
-      isoX: targetIsoX,
-      isoY: targetIsoY,
-      duration: 1000 / this.moveSpeed,
+      targets: this.sprite,
+      x: endWorldPos.x + 400,
+      y: endWorldPos.y + 100,
+      duration: this.moveSpeed,
       ease: 'Power2',
-      onUpdate: () => {
-        this.updatePosition();
-      },
       onComplete: () => {
         this.isMoving = false;
-        this.isoX = targetIsoX;
-        this.isoY = targetIsoY;
+        this.gridX = targetGridX;
+        this.gridY = targetGridY;
+        console.log(`Moved to: (${this.gridX}, ${this.gridY})`);
+        
+        // Check what tile we're on after moving
+        this.isValidTile(this.gridX, this.gridY);
       }
     });
   }
@@ -96,26 +149,63 @@ export class IsometricPlayer {
   handleInput(cursors, wasd) {
     if (this.isMoving) return;
 
-    let newIsoX = this.isoX;
-    let newIsoY = this.isoY;
+    let newGridX = this.gridX;
+    let newGridY = this.gridY;
 
-    // Corrected, more intuitive isometric movement directions
+    // TRUE isometric movement - all directions are diagonal in grid coordinates
+    // But we need to account for staggered adjacency
+    const isOddRow = this.gridY % 2 === 1;
+
     if (cursors.up.isDown || wasd.W.isDown) {
-      newIsoX -= 1; // Move North-West (Up-Left on screen)
+      // Move to adjacent tile in the "up-left" diagonal direction
+      if (isOddRow) {
+        newGridX += 0;  // Odd rows don't shift X when going up-left
+        newGridY -= 1;
+      } else {
+        newGridX -= 1;  // Even rows shift X when going up-left
+        newGridY -= 1;
+      }
+      console.log('Moving UP-LEFT diagonal');
     }
-    if (cursors.down.isDown || wasd.S.isDown) {
-      newIsoX += 1; // Move South-East (Down-Right on screen)
+    else if (cursors.down.isDown || wasd.S.isDown) {
+      // Move to adjacent tile in the "down-right" diagonal direction  
+      if (isOddRow) {
+        newGridX += 1;  // Odd rows shift X when going down-right
+        newGridY += 1;
+      } else {
+        newGridX += 0;  // Even rows don't shift X when going down-right
+        newGridY += 1;
+      }
+      console.log('Moving DOWN-RIGHT diagonal');
     }
-    if (cursors.left.isDown || wasd.A.isDown) {
-      newIsoY += 1; // Move South-West (Down-Left on screen)
+    else if (cursors.left.isDown || wasd.A.isDown) {
+      // Move to adjacent tile in the "down-left" diagonal direction
+      if (isOddRow) {
+        newGridX += 0;  // Odd rows don't shift X when going down-left
+        newGridY += 1;
+      } else {
+        newGridX -= 1;  // Even rows shift X when going down-left
+        newGridY += 1;
+      }
+      console.log('Moving DOWN-LEFT diagonal');
     }
-    if (cursors.right.isDown || wasd.D.isDown) {
-      newIsoY -= 1; // Move North-East (Up-Right on screen)
+    else if (cursors.right.isDown || wasd.D.isDown) {
+      // Move to adjacent tile in the "up-right" diagonal direction
+      if (isOddRow) {
+        newGridX += 1;  // Odd rows shift X when going up-right
+        newGridY -= 1;
+      } else {
+        newGridX += 0;  // Even rows don't shift X when going up-right  
+        newGridY -= 1;
+      }
+      console.log('Moving UP-RIGHT diagonal');
     }
+
+    console.log(`Current: (${this.gridX}, ${this.gridY}) -> Target: (${newGridX}, ${newGridY})`);
 
     // Only move if position changed
-    if (newIsoX !== this.isoX || newIsoY !== this.isoY) {
-      this.moveToIsoPosition(newIsoX, newIsoY);
+    if (newGridX !== this.gridX || newGridY !== this.gridY) {
+      this.moveToGridPosition(newGridX, newGridY);
     }
   }
 }

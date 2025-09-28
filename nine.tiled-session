@@ -7,6 +7,12 @@
     "expandedProjectPaths": [
     ],
     "fileStates": {
+        "": {
+            "scaleInDock": 1
+        },
+        "/images/tiles/isometric tileset/spritesheet.png": {
+            "scaleInDock": 1
+        }
     },
     "last.imagePath": "C:/Users/vince/Desktop/K+V/client/public/images/tiles/isometric tileset",
     "map.height": 30,
