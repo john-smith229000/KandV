@@ -1,39 +1,48 @@
-import express from 'express';
-import fetch from 'node-fetch';
+import express from "express";
+import dotenv from "dotenv";
+import fetch from "node-fetch";
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// These lines are for serving static files from the 'client/dist' folder
+dotenv.config({ path: "../.env" });
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const clientDistPath = path.join(__dirname, '..', 'client', 'dist');
 
 const app = express();
 const port = 3001;
 
-// This tells our server to serve the game files
-app.use(express.static(clientDistPath));
+// Allow express to parse JSON bodies
 app.use(express.json());
 
-// This is the same authentication route from the official template
-app.post('/api/token', async (req, res) => {
+// CRITICAL: Add security headers for Discord
+app.use((req, res, next) => {
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+  next();
+});
+
+// CRITICAL: Serve the built client files
+app.use(express.static(path.join(__dirname, '../client/dist')));
+
+app.post("/api/token", async (req, res) => {
   const response = await fetch(`https://discord.com/api/oauth2/token`, {
-    method: 'POST',
+    method: "POST",
     headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
+      "Content-Type": "application/x-www-form-urlencoded",
     },
     body: new URLSearchParams({
       client_id: process.env.VITE_DISCORD_CLIENT_ID,
       client_secret: process.env.DISCORD_CLIENT_SECRET,
-      grant_type: 'authorization_code',
+      grant_type: "authorization_code",
       code: req.body.code,
     }),
   });
 
   const { access_token } = await response.json();
-  res.send({ access_token });
+  res.send({access_token});
 });
 
 app.listen(port, () => {
-  console.log(`[VICTORY] Your unified server is running at http://localhost:${port}`);
+  console.log(`Server listening at http://localhost:${port}`);
 });

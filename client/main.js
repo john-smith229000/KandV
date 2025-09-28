@@ -1,18 +1,66 @@
-// main.js - Phaser 3 setup for Discord Activities
+import './style.css';
 import Phaser from 'phaser';
 import { IsometricPlayer } from './isometric.js';
+import { DiscordSDK } from '@discord/embedded-app-sdk';
 
+// Check if we're running in Discord
+const urlParams = new URLSearchParams(window.location.search);
+const isDiscordActivity = urlParams.has('frame_id');
+
+// Discord SDK variables
+let discordSdk = null;
+let auth = null;
+
+// Discord Setup Function
+async function setupDiscordSdk() {
+  // Skip Discord in local development
+  if (!isDiscordActivity) {
+    console.log('📝 Running in local development mode');
+    return null;
+  }
+
+  console.log('🚀 Initializing Discord SDK...');
+  discordSdk = new DiscordSDK(import.meta.env.VITE_DISCORD_CLIENT_ID);
+  
+  await discordSdk.ready();
+
+  const { code } = await discordSdk.commands.authorize({
+    client_id: import.meta.env.VITE_DISCORD_CLIENT_ID,
+    response_type: 'code',
+    state: '',
+    prompt: 'none',
+    scope: ['identify', 'guilds'],
+  });
+
+  const response = await fetch('/api/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  
+  const { access_token } = await response.json();
+
+  auth = await discordSdk.commands.authenticate({ access_token });
+  if (auth == null) {
+    throw new Error('Authentication failed');
+  }
+  
+  console.log('✅ Discord SDK initialized!');
+  return auth;
+}
+
+// Game Scene
 class GameScene extends Phaser.Scene {
   constructor() {
     super({ key: 'GameScene' });
   }
 
   preload() {
-    // Load your actual tileset image
+    // Load your tileset image
     this.load.image('tiles', '/images/tiles/isometric tileset/spritesheet.png');
 
-    // Load the Tiled JSON map data  
-    this.load.tilemapTiledJSON('map', 'images//maps/testmap2.json');
+    // Load the Tiled JSON map data (fixed double slash)
+    this.load.tilemapTiledJSON('map', '/images/maps/testmap2.json');
     
     // Add loading event listeners for debugging
     this.load.on('filecomplete', (key, type, data) => {
@@ -21,52 +69,62 @@ class GameScene extends Phaser.Scene {
     
     this.load.on('loaderror', (file) => {
       console.error('Failed to load:', file.key, file.url);
+      console.error('Make sure this file exists in client/public/', file.url);
     });
-    
-    // You can uncomment this when you are ready to use the cat sprite
-    // this.load.image('cat', '/images/cat.png');
   }
 
   create() {
-    // Create a tilemap object from the loaded data
-    const map = this.make.tilemap({ key: 'map' });
+    try {
+      // Create a tilemap object from the loaded data
+      const map = this.make.tilemap({ key: 'map' });
 
-    // Add the tileset image to the map
-    // The name 'spritesheet' now matches what's in our JSON file
-    const tileset = map.addTilesetImage('spritesheet', 'tiles');
+      // Add the tileset image to the map
+      const tileset = map.addTilesetImage('spritesheet', 'tiles');
 
-    // Create the layer from the map data
-    // Use the actual layer name from your JSON: "Tile Layer 1"
-    const groundLayer = map.createLayer('Tile Layer 1', tileset, 0, 0);
+      // Create the layer from the map data
+      const groundLayer = map.createLayer('Tile Layer 1', tileset, 0, 0);
 
-    // Optional: Set the layer scale if you want it bigger/smaller
-    // groundLayer.setScale(2);
+      // Use the IsometricPlayer class
+      this.player = new IsometricPlayer(this, 2, 12);
+      
+      // Give the player access to the tilemap for collision detection
+      this.player.setTilemap(map);
 
-    // Use the IsometricPlayer class - spawn on a tile with data (around 15, 18)
-    this.player = new IsometricPlayer(this, 2, 12);
-    
-    // Give the player access to the tilemap for collision detection
-    this.player.setTilemap(map);
+      // Set up keyboard input
+      this.cursors = this.input.keyboard.createCursorKeys();
+      this.wasd = this.input.keyboard.addKeys('W,S,A,D');
 
-    // Set up keyboard input
-    this.cursors = this.input.keyboard.createCursorKeys();
-    this.wasd = this.input.keyboard.addKeys('W,S,A,D');
+      // Add UI text
+      const modeText = isDiscordActivity ? '🎮 Discord Mode' : '💻 Local Development';
+      this.add.text(10, 10, modeText, {
+        fontSize: '14px',
+        fill: '#00ff00'
+      });
 
-    // Debug: Add text to confirm scene is loaded
-    this.add.text(10, 10, 'Game Loaded! Use WASD or arrows to move', {
-      fontSize: '16px',
-      fill: '#ffffff'
-    });
+      this.add.text(10, 35, 'Use WASD or arrows to move', {
+        fontSize: '16px',
+        fill: '#ffffff'
+      });
 
-    // Debug: Log map information
-    console.log('Map loaded:', map);
-    console.log('Tileset loaded:', tileset);
-    console.log('Ground layer created:', groundLayer);
+      // Debug: Log map information
+      console.log('Map loaded:', map);
+      console.log('Tileset loaded:', tileset);
+      console.log('Ground layer created:', groundLayer);
+      
+    } catch (error) {
+      console.error('Error creating game:', error);
+      this.add.text(400, 300, 'Error loading game. Check console.', {
+        fontSize: '20px',
+        fill: '#ff0000'
+      }).setOrigin(0.5);
+    }
   }
 
   update(time, delta) {
-    // Handle player movement using the method from IsometricPlayer
-    this.player.handleInput(this.cursors, this.wasd);
+    // Handle player movement
+    if (this.player) {
+      this.player.handleInput(this.cursors, this.wasd);
+    }
   }
 }
 
@@ -75,7 +133,7 @@ const config = {
   type: Phaser.AUTO,
   width: 800,
   height: 600,
-  parent: 'game', // This should match your HTML element ID
+  parent: 'game',
   backgroundColor: '#2c3e50',
   scene: GameScene,
   render: {
@@ -89,7 +147,24 @@ const config = {
   }
 };
 
-// Create and start the game
-const game = new Phaser.Game(config);
+// Start the application
+async function startApp() {
+  try {
+    // Try Discord setup only if we're in Discord
+    await setupDiscordSdk();
+  } catch (error) {
+    // This is normal for local development - not a real error
+    if (isDiscordActivity) {
+      console.error('Discord SDK error:', error);
+    }
+  }
+  
+  // Always start the game, regardless of Discord
+  console.log('🎮 Starting Phaser game...');
+  const game = new Phaser.Game(config);
+}
 
-export default game;
+// Start everything
+startApp();
+
+export default {};

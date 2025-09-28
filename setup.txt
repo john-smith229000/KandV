@@ -1,31 +1,13 @@
-Discord Activity: Quick Launch ChecklistThis is the fast way to get your activity running for a testing session. It assumes you have already completed the one-time setup (installing dependencies, creating the .env file, etc.).How to Test Your Game (Live Development Mode)Use this method when you are actively writing code and want to see your changes live.You will need three separate PowerShell terminals.
-Terminal 1: Start the Backend Server
-Navigate to the server folder:
-	cd C:\Users\vince\Desktop\K+V\server
-Start the server:
-	npm start
-Leave this terminal running.
+# Terminal 1 - Build and serve
+cd client
+npm run build
+cd ../server
+npm start
 
+# Terminal 2 - Tunnel
+cloudflared tunnel --url http://localhost:3001
 
-Terminal 2: Start the Frontend Client
-Open a second terminal.
-Navigate to the client folder:
-	cd C:\Users\vince\Desktop\K+V\client
-Start the client:
-	npm run dev
-Leave this terminal running.
+# Copy the URL from Terminal 2
+# Update Discord Developer Portal
+# Launch from Discord (not browser!)
 
-
-Terminal 3: Start the Secure Tunnel
-Open a third terminal.
-Navigate to your main project folder:
-	cd C:\Users\vince\Desktop\K+V
-Start the tunnel, pointing it to your CLIENT's port (from Terminal 2, usually 5173):
-	.\cloudflared.exe tunnel --url [http://127.0.0.1:5173](http://127.0.0.1:5173)
-Leave this terminal running.
-
-
-Final Step: Update and Launch
-Copy the new .trycloudflare.com URL from Terminal 3.
-Update both the URL Mapping and OAuth2 Redirect in the Discord Developer Portal.
-Save the changes and launch your activity in a server voice channel.

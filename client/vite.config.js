@@ -1,8 +1,7 @@
 import {defineConfig} from 'vite';
 
-// https://vitejs.dev/config/
 export default defineConfig({
-  envDir: '../',
+  envDir: '../',  // This looks for .env in the root directory
   server: {
     proxy: {
       '/api': {
