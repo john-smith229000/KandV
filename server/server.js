@@ -3,6 +3,8 @@ import dotenv from "dotenv";
 import fetch from "node-fetch";
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
 
 dotenv.config({ path: "../.env" });
 
@@ -10,20 +12,28 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+const server = createServer(app);
+
+// This 'cors' block is the critical fix
+const io = new Server(server, {
+  cors: {
+    origin: "*", // Allows connections from any origin
+    methods: ["GET", "POST"]
+  },
+});
+
 const port = 3001;
+const players = {};
 
-// Allow express to parse JSON bodies
 app.use(express.json());
+app.use(express.static(path.join(__dirname, '../client/dist')));
 
-// CRITICAL: Add security headers for Discord
+// Your Express routes and middleware remain here
 app.use((req, res, next) => {
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
   res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
   next();
 });
-
-// CRITICAL: Serve the built client files
-app.use(express.static(path.join(__dirname, '../client/dist')));
 
 app.post("/api/token", async (req, res) => {
   const response = await fetch(`https://discord.com/api/oauth2/token`, {
@@ -43,6 +53,33 @@ app.post("/api/token", async (req, res) => {
   res.send({access_token});
 });
 
-app.listen(port, () => {
-  console.log(`Server listening at http://localhost:${port}`);
+// --- Multiplayer Logic ---
+io.on('connection', (socket) => {
+  console.log(`🔌 Player connected: ${socket.id}`);
+
+  players[socket.id] = {
+    x: 15, y: 18, direction: 'down-right', playerId: socket.id,
+  };
+
+  socket.emit('currentPlayers', players);
+  socket.broadcast.emit('newPlayer', players[socket.id]);
+
+  socket.on('playerMovement', (movementData) => {
+    if (players[socket.id]) {
+        players[socket.id].x = movementData.x;
+        players[socket.id].y = movementData.y;
+        players[socket.id].direction = movementData.direction;
+        socket.broadcast.emit('playerMoved', players[socket.id]);
+    }
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`🔌 Player disconnected: ${socket.id}`);
+    delete players[socket.id];
+    io.emit('playerDisconnected', socket.id);
+  });
+});
+
+server.listen(port, () => {
+  console.log(`🚀 Server listening at http://localhost:${port}`);
 });

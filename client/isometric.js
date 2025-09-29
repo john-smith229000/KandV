@@ -46,8 +46,9 @@ export class IsometricHelper {
 
 // Updated player class for staggered maps with collision detection
 export class IsometricPlayer {
-  constructor(scene, startIsoX = 15, startIsoY = 18) { // Start on a tile with data
+  constructor(scene, startIsoX = 15, startIsoY = 18, socket) { // Start on a tile with data
     this.scene = scene;
+    this.socket = socket;
     this.tilemap = null; // Will be set from the scene
     
     // Grid position (in tile coordinates) - start on a visible tile
@@ -59,8 +60,10 @@ export class IsometricPlayer {
     this.updatePosition();
     
     // Movement speed
-    this.moveSpeed = 100; // milliseconds per move
+    this.moveSpeed = 200; // milliseconds per move
     this.isMoving = false;
+
+
   }
 
   // Set the tilemap reference so we can check tile data
@@ -168,6 +171,11 @@ export class IsometricPlayer {
         this.isMoving = false;
         this.gridX = targetGridX;
         this.gridY = targetGridY;
+
+        // After a move is complete, tell the server
+        if (this.socket) {
+          this.socket.emit('playerMovement', { x: this.gridX, y: this.gridY, direction: direction });
+        }
       }
     });
   }

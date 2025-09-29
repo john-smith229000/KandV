@@ -12,6 +12,9 @@ npm start
 # Launch from Discord (not browser!)
 
 #Local Testing
+if testing multiplayer
+	cd server
+		npm start
 cd client
 	npm run dev
 	http://localhost:5173/
