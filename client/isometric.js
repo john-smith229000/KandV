@@ -71,7 +71,8 @@ export class IsometricPlayer {
     this.updatePosition();
     
     // Movement speed
-    this.moveSpeed = 200; // milliseconds per move
+    this.defaultMoveSpeed = 125; // milliseconds per move
+    this.moveSpeed = this.defaultMoveSpeed;
     this.isMoving = false;
 
 
@@ -163,6 +164,23 @@ export class IsometricPlayer {
     if (this.isMoving) return;
     if (!this.isValidTile(targetGridX, targetGridY)) {
       return;
+    }
+
+    // Check layers from top to bottom for properties.
+    const bridgeTile = this.tilemap.getTileAt(targetGridX, targetGridY, true, 'Bridge');
+    const groundTile = this.tilemap.getTileAt(targetGridX, targetGridY, true, 'Ground');
+
+    // Default to normal speed
+    this.moveSpeed = this.defaultMoveSpeed;
+
+    // Check if there is an actual, visible tile on the bridge layer.
+    // A tile with an index of -1 is an empty space.
+    const isBridgePresent = bridgeTile && bridgeTile.index !== -1;
+
+    // Only check the ground for water if there's NO bridge tile present.
+    if (!isBridgePresent && groundTile && groundTile.properties.water === "1") {
+        this.moveSpeed = this.defaultMoveSpeed * 1.5; // 50% slower
+        console.log("Moving on water, speed is now:", this.moveSpeed);
     }
 
     this.isMoving = true;
