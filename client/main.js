@@ -36,6 +36,33 @@ class UIScene extends Phaser.Scene {
             fontSize: '16px',
             fill: '#ffffff'
         });
+
+        // --- Sound Effect Logic ---
+        if (isMobile) {
+            // --- 1. Create the button for mobile ---
+            // A circle graphic in the top-right corner.
+            const meowButton = this.add.circle(1240, 40, 25, 0xcccccc, 0.8);
+            
+            // --- 2. Make it interactive ---
+            meowButton.setInteractive();
+
+            // --- 3. Add a click/touch listener ---
+            meowButton.on('pointerdown', () => {
+                this.sound.play('meow_sound');
+                // Optional: visual feedback when pressed
+                meowButton.setFillStyle(0xffffff, 1);
+                this.time.delayedCall(100, () => {
+                    meowButton.setFillStyle(0xcccccc, 0.8);
+                });
+            });
+
+        } else {
+            // --- For desktop, use the 'M' key ---
+            const MKey = this.input.keyboard.addKey('M');
+            MKey.on('down', () => {
+                this.sound.play('meow_sound');
+            });
+        }
     }
 }
 
@@ -48,12 +75,16 @@ class GameScene extends Phaser.Scene {
     }
 
     preload() {
+        // Maps
         this.load.image('tiles', '/images/tiles/isometric tileset/spritesheet.png');
         this.load.tilemapTiledJSON('map', '/images/maps/testmap2.json');
 
         // Load the new character sprites
         this.load.image('cat1', '/images/actors/cat1.png');
         this.load.image('cat2', '/images/actors/cat2.png');
+
+        // Sounds
+        this.load.audio('meow_sound', '/sounds/meow.wav');
     }
 
     create() {

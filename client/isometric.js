@@ -166,7 +166,7 @@ export class IsometricPlayer {
       x: endWorldPos.x,
       y: endWorldPos.y,
       duration: this.moveSpeed * 1.6,
-      ease: 'Cubic.easeOut',
+      ease: 'Linear',
       onComplete: () => {
         this.isMoving = false;
         this.gridX = targetGridX;
