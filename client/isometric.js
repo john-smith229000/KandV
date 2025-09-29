@@ -57,6 +57,17 @@ export class IsometricPlayer {
     
     // Create sprite - change the size here (width, height)
     this.sprite = scene.add.sprite(0, 0, 'cat1').setScale(0.3).setOrigin(0.35, 0.75);
+
+    // 1. Give the sprite a physics body
+    scene.physics.add.existing(this.sprite);
+
+    // 2. Adjust the physics body to be a smaller circle at the player's feet
+    //    This prevents the large, transparent parts of the sprite from triggering overlaps.
+    //    setCircle(radius)
+    this.sprite.body.setCircle(35); 
+    //    setOffset(x, y) to center the new circle
+    this.sprite.body.setOffset(55, 130); 
+
     this.updatePosition();
     
     // Movement speed
@@ -85,7 +96,7 @@ export class IsometricPlayer {
     }
 
     // 1) check by tile coordinates (safe access; avoid falsy-0 bug)
-    const layerData = this.tilemap.getLayer('Tile Layer 1').data;
+    const layerData = this.tilemap.getLayer('Ground').data;
     const row = layerData[gridY];
     const tileAtCoords = row ? row[gridX] : null;
     const validCoords = !!tileAtCoords && tileAtCoords.index !== -1;
@@ -101,7 +112,7 @@ export class IsometricPlayer {
           center.x, center.y,
           false,
           (this.scene && this.scene.cameras && this.scene.cameras.main) ? this.scene.cameras.main : undefined,
-          'Tile Layer 1'
+          'Ground'
         );
       } catch (e) {
         // some Phaser builds accept different params — ignore and fallback to coord check

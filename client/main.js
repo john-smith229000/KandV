@@ -88,7 +88,8 @@ class GameScene extends Phaser.Scene {
     preload() {
         // Maps
         this.load.image('tiles', '/images/tiles/isometric tileset/spritesheet.png');
-        this.load.tilemapTiledJSON('map', '/images/maps/testmap2.json');
+        //this.load.tilemapTiledJSON('map', '/images/maps/testmap2.json');
+        this.load.tilemapTiledJSON('map', '/images/maps/testmap3.json');
 
         // Load the new character sprites
         this.load.image('cat1', '/images/actors/cat1.png');
@@ -107,30 +108,54 @@ class GameScene extends Phaser.Scene {
 
         const map = this.make.tilemap({ key: 'map' });
         const tileset = map.addTilesetImage('spritesheet', 'tiles');
-        this.groundLayer = map.createLayer('Tile Layer 1', tileset, 0, 0);
+        //this.groundLayer = map.createLayer('Tile Layer 1', tileset, 0, 0);
+
+        // --- 2. Create each tile layer ---
+        // The order matters; layers created later will be drawn on top.
+        map.createLayer('Ground', tileset, 0, 0);
+        map.createLayer('Bridge', tileset, 0, 0);
+        map.createLayer('Foliage', tileset, 0, 0);
+
+        // Keep a reference to the ground layer for collision checks
+        this.groundLayer = map.getLayer('Ground').tilemapLayer;
 
         this.otherPlayers = this.add.group(); // Group to hold other players
 
         // --- Socket.IO Listeners ---
         this.socket.on('currentPlayers', (players) => {
+            const selfId = this.socket.id;
+            const selfData = players[selfId];
 
-          // 1. Find the current player's data first
-          const selfId = this.socket.id;
-          const selfData = players[selfId];
+            // --- PLAYER AND CAMERA LOGIC MOVED HERE ---
+            if (selfData) {
+                this.player = new IsometricPlayer(this, selfData.x, selfData.y, this.socket);
+                this.player.setTilemap(map);
 
-          // 2. Create the main player object. This is now guaranteed to happen first.
-          this.player = new IsometricPlayer(this, selfData.x, selfData.y, this.socket);
-          this.player.setTilemap(map); 
-
-          this.cameras.main.startFollow(this.player.sprite, true);
-          this.cameras.main.setZoom(2.8);
+                // Now that the player exists, set up the camera
+                this.cameras.main.startFollow(this.player.sprite, true);
+                this.cameras.main.setZoom(2.8);
+            }
+            // --- END OF MOVED LOGIC ---
 
             Object.keys(players).forEach((id) => {
                 if (id !== selfId) {
-                  // This is another player, so add their sprite
-                  this.addOtherPlayer(players[id]);
+                    this.addOtherPlayer(players[id]);
                 }
             });
+
+            // --- Process the Object Layer AFTER player is created ---
+            const triggerLayer = map.getObjectLayer('EllipseTrigger');
+            if (triggerLayer && this.player) {
+                triggerLayer.objects.forEach(obj => {
+                    if (obj.name === 'flowecircle' && obj.ellipse) {
+                        const triggerZone = this.add.ellipse(obj.x + obj.width / 2, obj.y + obj.height / 2, obj.width, obj.height);
+                        this.physics.add.existing(triggerZone, true);
+                        this.physics.add.overlap(this.player.sprite, triggerZone, () => {
+                            console.log('Player entered the flower circle!');
+                        });
+                    }
+                });
+            }
         });
 
         this.socket.on('newPlayer', (playerInfo) => {
@@ -213,6 +238,13 @@ const config = {
     backgroundColor: '#2c3e50',
     // The GameScene will be started first, and the UIScene will be drawn on top of it.
     scene: [GameScene, UIScene],
+    physics: {
+        default: 'arcade',
+        arcade: {
+            gravity: { y: 0 }, // We don't need gravity for a top-down game
+            debug: false // Set to true to see physics bodies
+        }
+    },
     plugins: {
         global: [{
             key: 'rexVirtualJoystick',

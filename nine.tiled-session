@@ -10,7 +10,7 @@
         "": {
             "scaleInDock": 1
         },
-        "/images/tiles/isometric tileset/spritesheet.png": {
+        "C:/images/tiles/isometric tileset/spritesheet.png": {
             "scaleInDock": 1
         },
         "client/public/images/maps/testmap2.json": {
@@ -29,17 +29,20 @@
             "scaleInEditor": 1
         }
     },
+    "last.exportedFilePath": "C:/Users/vince/Desktop/K+V/client/public/images/maps",
     "last.imagePath": "C:/Users/vince/Desktop/K+V/client/public/images/tiles/isometric tileset",
     "map.height": 30,
+    "map.lastUsedExportFilter": "JSON map files (*.tmj *.json)",
     "map.lastUsedFormat": "json",
+    "map.orientation": "3",
     "openFiles": [
         "client/public/images/maps/testmap2.json",
         "client/public/images/tiles/spritesheet.tsx"
     ],
     "project": "nine.tiled-project",
     "recentFiles": [
-        "client/public/images/tiles/spritesheet.tsx",
-        "client/public/images/maps/testmap2.json"
+        "client/public/images/maps/testmap2.json",
+        "client/public/images/tiles/spritesheet.tsx"
     ],
     "tileset.lastUsedFormat": "tsx"
 }

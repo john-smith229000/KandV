@@ -59,7 +59,7 @@ io.on('connection', (socket) => {
   console.log(`🔌 Player connected: ${socket.id}`);
 
   players[socket.id] = {
-    x: 15, y: 18, direction: 'down-right', playerId: socket.id,
+    x: 14, y: 8, direction: 'down-right', playerId: socket.id,
   };
 
   socket.emit('currentPlayers', players);
