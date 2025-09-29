@@ -232,18 +232,19 @@ export class IsometricPlayer {
     }
   }
 
-  handleJoystickInput(joystick) {
-    if (this.isMoving || !joystick) return;
+ handleJoystickInput(joystickCursors) {
+    if (this.isMoving || !joystickCursors) return;
 
     let newGridX = this.gridX;
     let newGridY = this.gridY;
     let direction = null;
     const isOddRow = this.gridY % 2 === 1;
 
-    const up = joystick.isDirectionDown('up');
-    const down = joystick.isDirectionDown('down');
-    const left = joystick.isDirectionDown('left');
-    const right = joystick.isDirectionDown('right');
+    // We now check the 'isDown' property directly on the cursor data
+    const up = joystickCursors.up.isDown;
+    const down = joystickCursors.down.isDown;
+    const left = joystickCursors.left.isDown;
+    const right = joystickCursors.right.isDown;
 
     if (up && left) {
       direction = 'up-left';

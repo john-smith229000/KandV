@@ -37,31 +37,30 @@ class UIScene extends Phaser.Scene {
             fill: '#ffffff'
         });
 
-        // --- Sound Effect Logic ---
+        // --- Sound and Input Logic ---
         if (isMobile) {
-            // --- 1. Create the button for mobile ---
-            // A circle graphic in the top-right corner.
-            const meowButton = this.add.circle(1240, 40, 25, 0xcccccc, 0.8);
-            
-            // --- 2. Make it interactive ---
-            meowButton.setInteractive();
+            // --- 1. Create the Joystick in the UI Scene ---
+            const { width, height } = this.cameras.main;
+            const joystick = new Joystick(this, width - 100, height - 100);
+            joystick.setVisible(true);
 
-            // --- 3. Add a click/touch listener ---
-            meowButton.on('pointerdown', () => {
-                this.sound.play('meow_sound');
-                // Optional: visual feedback when pressed
-                meowButton.setFillStyle(0xffffff, 1);
-                this.time.delayedCall(100, () => {
-                    meowButton.setFillStyle(0xcccccc, 0.8);
-                });
-            });
+            // --- 2. Listen for joystick updates in the UI ---
+            this.joystickCursors = joystick.cursorKeys;
 
+            // Meow button logic is unchanged
+            const meowButton = this.add.circle(1240, 40, 25, 0xcccccc, 0.8).setInteractive();
+            meowButton.on('pointerdown', () => this.sound.play('meow_sound'));
         } else {
-            // --- For desktop, use the 'M' key ---
-            const MKey = this.input.keyboard.addKey('M');
-            MKey.on('down', () => {
-                this.sound.play('meow_sound');
-            });
+            // Desktop 'M' key logic is unchanged
+            this.input.keyboard.addKey('M').on('down', () => this.sound.play('meow_sound'));
+        }
+    }
+
+    update() {
+        // --- 3. Send joystick data to the Game Scene every frame ---
+        if (this.joystickCursors) {
+            // Use the global event bus to send the data
+            this.game.events.emit('joystick-update', this.joystickCursors);
         }
     }
 }
@@ -91,9 +90,8 @@ class GameScene extends Phaser.Scene {
         this.scene.launch('UIScene');
         
         // --- Socket.IO Connection ---
-        // For local testing: 'http://localhost:3001'
-        // For production: your server's public URL
-        this.socket = io('http://localhost:3001');
+        const socketURL = window.location.protocol === 'https:' ? window.location.origin : 'http://localhost:3001';
+        this.socket = io(socketURL);
 
         const map = this.make.tilemap({ key: 'map' });
         const tileset = map.addTilesetImage('spritesheet', 'tiles');
@@ -152,14 +150,16 @@ class GameScene extends Phaser.Scene {
             });
         });
 
+        // --- Listen for the event from the UI Scene ---
+        this.game.events.on('joystick-update', (cursors) => {
+            // If the player exists, pass the joystick data to it
+            if (this.player) {
+                this.player.handleJoystickInput(cursors);
+            }
+        });
+
         this.cursors = this.input.keyboard.createCursorKeys();
         this.wasd = this.input.keyboard.addKeys('W,S,A,D');
-        
-        this.joystick = null;
-        if (window.matchMedia("(pointer: coarse)").matches) {
-            this.joystick = new Joystick(this, 1150, 590);
-            this.joystick.setVisible(true);
-        }
     }
     
     // Helper function to add other players
@@ -175,11 +175,10 @@ class GameScene extends Phaser.Scene {
     }
 
     update(time, delta) {
+        // The main update loop is now simpler
         if (this.player) {
             this.player.handleInput(this.cursors, this.wasd);
-            if (this.joystick) {
-                this.player.handleJoystickInput(this.joystick);
-            }
+            // We no longer call the joystick handler here
         }
     }
 }
