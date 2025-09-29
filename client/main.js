@@ -49,11 +49,23 @@ class UIScene extends Phaser.Scene {
 
             // Meow button logic is unchanged
             const meowButton = this.add.circle(1240, 40, 25, 0xcccccc, 0.8).setInteractive();
-            meowButton.on('pointerdown', () => this.sound.play('meow_sound'));
-        } else {
-            // Desktop 'M' key logic is unchanged
-            this.input.keyboard.addKey('M').on('down', () => this.sound.play('meow_sound'));
-        }
+            // Send a 'meow' event to the server when pressed
+            meowButton.on('pointerdown', () => {
+                const gameScene = this.scene.get('GameScene');
+                if (gameScene && gameScene.socket) {
+                gameScene.socket.emit('meow');
+                }
+            });
+            } else {
+            // --- Updated Desktop 'M' Key ---
+            // Send a 'meow' event to the server when 'M' is pressed
+            this.input.keyboard.addKey('M').on('down', () => {
+                const gameScene = this.scene.get('GameScene');
+                if (gameScene && gameScene.socket) {
+                gameScene.socket.emit('meow');
+                }
+            });
+    }
     }
 
     update() {
@@ -151,6 +163,14 @@ class GameScene extends Phaser.Scene {
         });
 
         // --- Listen for the event from the UI Scene ---
+
+        // Listen for the 'meow' event broadcasted from the server
+        this.socket.on('meow', (playerId) => {
+            // You can optionally use the playerId to do something,
+            // like show who meowed. For now, we'll just play the sound.
+            this.sound.play('meow_sound');
+        });
+
         this.game.events.on('joystick-update', (cursors) => {
             // If the player exists, pass the joystick data to it
             if (this.player) {

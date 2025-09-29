@@ -65,6 +65,12 @@ io.on('connection', (socket) => {
   socket.emit('currentPlayers', players);
   socket.broadcast.emit('newPlayer', players[socket.id]);
 
+  // Listen for the 'meow' event from a client
+  socket.on('meow', () => {
+    // Broadcast the 'meow' event to all connected clients
+    io.emit('meow', socket.id);
+  });
+
   socket.on('playerMovement', (movementData) => {
     if (players[socket.id]) {
         players[socket.id].x = movementData.x;
