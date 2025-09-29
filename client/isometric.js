@@ -59,7 +59,7 @@ export class IsometricPlayer {
     this.updatePosition();
     
     // Movement speed
-    this.moveSpeed = 500; // milliseconds per move
+    this.moveSpeed = 100; // milliseconds per move
     this.isMoving = false;
   }
 
@@ -156,18 +156,23 @@ export class IsometricPlayer {
 
     this.isMoving = true;
     const endWorldPos = this.gridToWorldPosition(targetGridX, targetGridY, true);
+    endWorldPos.x = Math.round(endWorldPos.x);
+    endWorldPos.y = Math.round(endWorldPos.y);
 
     this.scene.tweens.add({
       targets: this.sprite,
       x: endWorldPos.x,
       y: endWorldPos.y,
-      duration: this.moveSpeed,
-      ease: 'Power2',
+      duration: this.moveSpeed * 1.6,
+      ease: 'Cubic.easeOut',
+      onUpdate: (tween, target) => {
+      target.x = Math.round(target.x);
+      target.y = Math.round(target.y);
+      },
       onComplete: () => {
         this.isMoving = false;
         this.gridX = targetGridX;
         this.gridY = targetGridY;
-        console.log(`✅ Moved to: (${this.gridX}, ${this.gridY})`);
       }
     });
   }
