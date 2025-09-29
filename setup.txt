@@ -11,3 +11,7 @@ cloudflared tunnel --url http://localhost:3001
 # Update Discord Developer Portal
 # Launch from Discord (not browser!)
 
+#Local Testing
+cd client
+	npm run dev
+	http://localhost:5173/

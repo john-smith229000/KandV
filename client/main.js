@@ -85,10 +85,12 @@ class GameScene extends Phaser.Scene {
       const groundLayer = map.createLayer('Tile Layer 1', tileset, 0, 0);
 
       // Use the IsometricPlayer class
-      this.player = new IsometricPlayer(this, 2, 12);
+      this.player = new IsometricPlayer(this, 15, 18);
       
       // Give the player access to the tilemap for collision detection
       this.player.setTilemap(map);
+
+      this.cameras.main.startFollow(this.player.sprite, true);
 
       // Set up keyboard input
       this.cursors = this.input.keyboard.createCursorKeys();
