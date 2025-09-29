@@ -55,7 +55,7 @@ export class IsometricPlayer {
     this.gridY = startIsoY;
     
     // Create sprite - change the size here (width, height)
-    this.sprite = scene.add.rectangle(0, 0, 16, 16, 0xff0000);
+    this.sprite = scene.add.sprite(0, 0, 'cat1').setScale(0.3).setOrigin(0.35, 0.75);
     this.updatePosition();
     
     // Movement speed
@@ -145,19 +145,18 @@ export class IsometricPlayer {
   }
 
   // --- Move to grid position using world CENTER and collision check ---
-  moveToGridPosition(targetGridX, targetGridY) {
+  moveToGridPosition(targetGridX, targetGridY, direction) {
     if (this.isMoving) return;
-
-    // Check target tile validity (bounds + world-sampling)
     if (!this.isValidTile(targetGridX, targetGridY)) {
-      console.log(`❌ Move blocked to (${targetGridX}, ${targetGridY})`);
       return;
     }
 
     this.isMoving = true;
+    
+    // Set sprite direction BEFORE the tween starts
+    this.updateSpriteDirection(direction);
+
     const endWorldPos = this.gridToWorldPosition(targetGridX, targetGridY, true);
-    endWorldPos.x = Math.round(endWorldPos.x);
-    endWorldPos.y = Math.round(endWorldPos.y);
 
     this.scene.tweens.add({
       targets: this.sprite,
@@ -165,10 +164,6 @@ export class IsometricPlayer {
       y: endWorldPos.y,
       duration: this.moveSpeed * 1.6,
       ease: 'Cubic.easeOut',
-      onUpdate: (tween, target) => {
-      target.x = Math.round(target.x);
-      target.y = Math.round(target.y);
-      },
       onComplete: () => {
         this.isMoving = false;
         this.gridX = targetGridX;
@@ -177,30 +172,55 @@ export class IsometricPlayer {
     });
   }
 
+  updateSpriteDirection(direction) {
+    switch (direction) {
+      case 'up-right':
+        this.sprite.setTexture('cat2');
+        this.sprite.setFlipX(false);
+        break;
+      case 'up-left':
+        this.sprite.setTexture('cat2');
+        this.sprite.setFlipX(true);
+        break;
+      case 'down-right':
+        this.sprite.setTexture('cat1');
+        this.sprite.setFlipX(false);
+        break;
+      case 'down-left':
+        this.sprite.setTexture('cat1');
+        this.sprite.setFlipX(true);
+        break;
+    }
+  }
+   // --- Updated Input Handlers ---
   handleInput(cursors, wasd) {
     if (this.isMoving) return;
 
     let newGridX = this.gridX;
     let newGridY = this.gridY;
-
+    let direction = null;
     const isOddRow = this.gridY % 2 === 1;
 
-    if (cursors.up.isDown || wasd.W.isDown) { // W (Up-Left)
+    if (cursors.up.isDown || wasd.W.isDown) {
+      direction = 'up-left';
       newGridY--;
       newGridX = this.gridX - (isOddRow ? 0 : 1);
-    } else if (cursors.right.isDown || wasd.D.isDown) { // D (Up-Right)
+    } else if (cursors.right.isDown || wasd.D.isDown) {
+      direction = 'up-right';
       newGridY--;
       newGridX = this.gridX + (isOddRow ? 1 : 0);
-    } else if (cursors.down.isDown || wasd.S.isDown) { // S (Down-Right)
+    } else if (cursors.down.isDown || wasd.S.isDown) {
+      direction = 'down-right';
       newGridY++;
       newGridX = this.gridX + (isOddRow ? 1 : 0);
-    } else if (cursors.left.isDown || wasd.A.isDown) { // A (Down-Left)
+    } else if (cursors.left.isDown || wasd.A.isDown) {
+      direction = 'down-left';
       newGridY++;
       newGridX = this.gridX - (isOddRow ? 0 : 1);
     }
 
-    if (newGridX !== this.gridX || newGridY !== this.gridY) {
-      this.moveToGridPosition(newGridX, newGridY);
+    if (direction) {
+      this.moveToGridPosition(newGridX, newGridY, direction);
     }
   }
 
@@ -209,31 +229,34 @@ export class IsometricPlayer {
 
     let newGridX = this.gridX;
     let newGridY = this.gridY;
-
+    let direction = null;
     const isOddRow = this.gridY % 2 === 1;
 
-    // The joystick plugin gives us directional booleans
     const up = joystick.isDirectionDown('up');
     const down = joystick.isDirectionDown('down');
     const left = joystick.isDirectionDown('left');
     const right = joystick.isDirectionDown('right');
 
-    if (up && left && !right) { // Up-Left
+    if (up && left) {
+      direction = 'up-left';
       newGridY--;
       newGridX = this.gridX - (isOddRow ? 0 : 1);
-    } else if (up && right) { // Up-Right
+    } else if (up && right) {
+      direction = 'up-right';
       newGridY--;
       newGridX = this.gridX + (isOddRow ? 1 : 0);
-    } else if (down && right) { // Down-Right
+    } else if (down && right) {
+      direction = 'down-right';
       newGridY++;
       newGridX = this.gridX + (isOddRow ? 1 : 0);
-    } else if (down && left) { // Down-Left
+    } else if (down && left) {
+      direction = 'down-left';
       newGridY++;
       newGridX = this.gridX - (isOddRow ? 0 : 1);
     }
 
-    if (newGridX !== this.gridX || newGridY !== this.gridY) {
-      this.moveToGridPosition(newGridX, newGridY);
+    if (direction) {
+      this.moveToGridPosition(newGridX, newGridY, direction);
     }
   }
 }

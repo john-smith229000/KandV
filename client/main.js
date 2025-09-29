@@ -49,6 +49,10 @@ class GameScene extends Phaser.Scene {
     preload() {
         this.load.image('tiles', '/images/tiles/isometric tileset/spritesheet.png');
         this.load.tilemapTiledJSON('map', '/images/maps/testmap2.json');
+
+        // Load the new character sprites
+        this.load.image('cat1', '/images/actors/cat1.png');
+        this.load.image('cat2', '/images/actors/cat2.png');
     }
 
     create() {
@@ -76,7 +80,7 @@ class GameScene extends Phaser.Scene {
         this.player.setTilemap(map);
 
         this.cameras.main.startFollow(this.player.sprite, true);
-        this.cameras.main.setZoom(1.7);
+        this.cameras.main.setZoom(2.7);
 
         this.cursors = this.input.keyboard.createCursorKeys();
         this.wasd = this.input.keyboard.addKeys('W,S,A,D');
