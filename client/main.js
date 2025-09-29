@@ -2,6 +2,8 @@ import './style.css';
 import Phaser from 'phaser';
 import { IsometricPlayer } from './isometric.js';
 import { DiscordSDK } from '@discord/embedded-app-sdk';
+import { Joystick } from './joystick.js'; // Import the Joystick class
+import VirtualJoystickPlugin from 'phaser3-rex-plugins/dist/rexvirtualjoystickplugin.min.js';
 
 // Check if we're running in Discord
 const urlParams = new URLSearchParams(window.location.search);
@@ -85,7 +87,7 @@ class GameScene extends Phaser.Scene {
       const groundLayer = map.createLayer('Tile Layer 1', tileset, 0, 0);
 
       // Use the IsometricPlayer class
-      this.player = new IsometricPlayer(this, 15, 18);
+      this.player = new IsometricPlayer(this, 12, 18);
       
       // Give the player access to the tilemap for collision detection
       this.player.setTilemap(map);
@@ -95,6 +97,9 @@ class GameScene extends Phaser.Scene {
       // Set up keyboard input
       this.cursors = this.input.keyboard.createCursorKeys();
       this.wasd = this.input.keyboard.addKeys('W,S,A,D');
+
+      // Create the joystick for touch controls
+       this.joystick = new Joystick(this, 700, 500);
 
       // Add UI text
       const modeText = isDiscordActivity ? '🎮 Discord Mode' : '💻 Local Development';
@@ -126,6 +131,7 @@ class GameScene extends Phaser.Scene {
     // Handle player movement
     if (this.player) {
       this.player.handleInput(this.cursors, this.wasd);
+      this.player.handleJoystickInput(this.joystick); 
     }
   }
 }
@@ -138,6 +144,15 @@ const config = {
   parent: 'game',
   backgroundColor: '#2c3e50',
   scene: GameScene,
+  plugins: {
+    global: [ // Register the plugin globally
+      {
+        key: 'rexVirtualJoystick',
+        plugin: VirtualJoystickPlugin,
+        start: true
+      }
+    ]
+  },
   render: {
     pixelArt: true,
     antialias: false,

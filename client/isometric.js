@@ -203,4 +203,37 @@ export class IsometricPlayer {
       this.moveToGridPosition(newGridX, newGridY);
     }
   }
+
+  handleJoystickInput(joystick) {
+    if (this.isMoving || !joystick) return;
+
+    let newGridX = this.gridX;
+    let newGridY = this.gridY;
+
+    const isOddRow = this.gridY % 2 === 1;
+
+    // The joystick plugin gives us directional booleans
+    const up = joystick.isDirectionDown('up');
+    const down = joystick.isDirectionDown('down');
+    const left = joystick.isDirectionDown('left');
+    const right = joystick.isDirectionDown('right');
+
+    if (up && left && !right) { // Up-Left
+      newGridY--;
+      newGridX = this.gridX - (isOddRow ? 0 : 1);
+    } else if (up && right) { // Up-Right
+      newGridY--;
+      newGridX = this.gridX + (isOddRow ? 1 : 0);
+    } else if (down && right) { // Down-Right
+      newGridY++;
+      newGridX = this.gridX + (isOddRow ? 1 : 0);
+    } else if (down && left) { // Down-Left
+      newGridY++;
+      newGridX = this.gridX - (isOddRow ? 0 : 1);
+    }
+
+    if (newGridX !== this.gridX || newGridY !== this.gridY) {
+      this.moveToGridPosition(newGridX, newGridY);
+    }
+  }
 }
