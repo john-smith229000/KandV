@@ -108,10 +108,30 @@ class GameScene extends Phaser.Scene {
         fill: '#00ff00'
       });
 
-      this.add.text(10, 35, 'Use WASD or arrows to move', {
-        fontSize: '16px',
-        fill: '#ffffff'
-      });
+      // Check if the device is a touch device (mobile, tablet, etc.)
+     this.joystick = null;
+
+      // This is a more robust check for a mobile device.
+      // It checks if the primary input is a 'coarse' pointer (like a finger)
+      // and not a 'fine' pointer (like a mouse).
+      const isMobile = window.matchMedia("(pointer: coarse)").matches;
+
+      if (isMobile) {
+        console.log('Mobile device detected, creating joystick.');
+        this.joystick = new Joystick(this, 700, 500);
+        this.joystick.setVisible(true); // Make the joystick visible
+        
+        this.add.text(10, 35, 'Use the joystick to move', {
+          fontSize: '16px',
+          fill: '#ffffff'
+        });
+      } else {
+        console.log('Desktop device detected, hiding joystick.');
+        this.add.text(10, 35, 'Use WASD or arrows to move', {
+          fontSize: '16px',
+          fill: '#ffffff'
+        });
+      }
 
       // Debug: Log map information
       console.log('Map loaded:', map);
@@ -130,8 +150,13 @@ class GameScene extends Phaser.Scene {
   update(time, delta) {
     // Handle player movement
     if (this.player) {
+      // Keyboard controls will always work
       this.player.handleInput(this.cursors, this.wasd);
-      this.player.handleJoystickInput(this.joystick); 
+      
+      // Only handle joystick input if the joystick exists
+      if (this.joystick) {
+        this.player.handleJoystickInput(this.joystick);
+      }
     }
   }
 }

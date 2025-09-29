@@ -5,7 +5,7 @@ cd ../server
 npm start
 
 # Terminal 2 - Tunnel
-cloudflared tunnel --url http://localhost:3001
+.\cloudflared tunnel --url http://localhost:3001
 
 # Copy the URL from Terminal 2
 # Update Discord Developer Portal

@@ -1,27 +1,35 @@
+// client/joystick.js
+
 import Phaser from 'phaser';
-// Note: We don't need to import the plugin here anymore, as it's handled globally in main.js
 
 export class Joystick {
   constructor(scene, x, y, radius = 50) {
     this.scene = scene;
-
-    // The plugin is added to the scene in the game config, so we can use it like this:
+    
+    // Create the joystick but keep it invisible initially
     this.joyStick = scene.plugins.get('rexVirtualJoystick').add(scene, {
       x: x,
       y: y,
       radius: radius,
-      base: scene.add.circle(0, 0, radius, 0x888888),
-      thumb: scene.add.circle(0, 0, radius / 2, 0xcccccc),
-      dir: '8dir', // 8 directions for diagonal movement
+      base: scene.add.circle(0, 0, radius, 0x888888, 0.5),
+      thumb: scene.add.circle(0, 0, radius / 2, 0xcccccc, 0.8),
+      dir: '8dir',
       forceMin: 16,
       enable: true
     });
 
-    // Create a cursor object to read joystick states
     this.cursorKeys = this.joyStick.createCursorKeys();
+    
+    // Hide it by default
+    this.setVisible(false);
   }
 
-  // Helper method to check directions
+  // Method to control visibility
+  setVisible(visible) {
+    this.joyStick.base.setVisible(visible);
+    this.joyStick.thumb.setVisible(visible);
+  }
+
   isDirectionDown(direction) {
     return this.cursorKeys[direction].isDown;
   }
