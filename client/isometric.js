@@ -157,17 +157,22 @@ export class IsometricPlayer {
   updatePosition() {
     const worldPos = this.gridToWorldPosition(this.gridX, this.gridY);
     this.sprite.setPosition(worldPos.x, worldPos.y);
+    // Set depth based on y-coordinate for correct isometric sorting
+    this.sprite.setDepth(worldPos.y);
   }
+
 
   // --- Move to grid position using world CENTER and collision check ---
 moveToGridPosition(targetGridX, targetGridY, direction) {
      if (this.isMoving) return;
 
-    const moveableTile = this.scene.moveableLayer.getTileAt(targetGridX, targetGridY);
+    // Check if the moveable layer exists before trying to get a tile from it.
+    const moveableTile = this.scene.moveableLayer ? this.scene.moveableLayer.getTileAt(targetGridX, targetGridY) : null;
     let isPushing = false;
 
     // --- PUSH LOGIC ---
-    if (moveableTile && moveableTile.index !== -1) {
+    // Also check if the moveableLayer exists before entering the push logic.
+    if (this.scene.moveableLayer && moveableTile && moveableTile.index !== -1) {
         isPushing = true;
         
         // Calculate push direction based on movement direction
@@ -253,18 +258,21 @@ moveToGridPosition(targetGridX, targetGridY, direction) {
             tempTileSprite.setOrigin(0.5, 0.5);
             
             // Calculate depth based on Y position (isometric sorting)
-            const startDepth = tileWorldStart.y + 10000;
+            const startDepth = tileWorldStart.y;
             tempTileSprite.setDepth(startDepth);
 
             // Remove the tile from the layer immediately
             this.scene.moveableLayer.removeTileAt(targetGridX, targetGridY);
 
-            // Tween the temporary sprite to the new position
+            /// Tween the temporary sprite to the new position
             this.scene.tweens.add({
                 targets: tempTileSprite,
                 x: tileWorldEnd.x,
                 y: tileWorldEnd.y,
-                depth: tileWorldEnd.y + 10000,
+                // Continuously update depth for proper sorting during animation
+                onUpdate: () => {
+                    tempTileSprite.setDepth(tempTileSprite.y);
+                },
                 duration: this.defaultMoveSpeed * 2 * 1.6,
                 ease: 'Linear',
                 onComplete: () => {
@@ -301,7 +309,7 @@ moveToGridPosition(targetGridX, targetGridY, direction) {
         }
     }
 
-    // Player movement tween
+   // Player movement tween
     this.isMoving = true;
     this.updateSpriteDirection(direction);
     const endWorldPos = this.gridToWorldPosition(targetGridX, targetGridY, true);
@@ -312,6 +320,10 @@ moveToGridPosition(targetGridX, targetGridY, direction) {
         y: endWorldPos.y,
         duration: this.moveSpeed * 1.6,
         ease: 'Linear',
+        // Add onUpdate to continually set the player's depth while moving
+        onUpdate: () => {
+            this.sprite.setDepth(this.sprite.y);
+        },
         onComplete: () => {
             this.isMoving = false;
             this.gridX = targetGridX;

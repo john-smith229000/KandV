@@ -6,6 +6,13 @@ import { DiscordSDK } from '@discord/embedded-app-sdk';
 import { Joystick } from './joystick.js';
 import VirtualJoystickPlugin from 'phaser3-rex-plugins/dist/rexvirtualjoystickplugin.min.js';
 
+const DEPTHS = {
+    GROUND: 0,
+    BRIDGE: 5,
+    FOLIAGE: 10,
+    MOVEABLE: 20,
+};
+
 // Discord variables and setup function (unchanged)
 const urlParams = new URLSearchParams(window.location.search);
 const isDiscordActivity = urlParams.has('frame_id');
@@ -127,17 +134,24 @@ class GameScene extends Phaser.Scene {
             this.socket.removeAllListeners();
         }
 
-        // Create the map BEFORE setting up socket listeners
+       // Create the map BEFORE setting up socket listeners
         this.map = this.make.tilemap({ key: this.currentMap });
         const tileset = this.map.addTilesetImage('spritesheet', 'tiles');
-        this.map.createLayer('Ground', tileset, 0, 0);
-        this.moveableLayer = this.map.createLayer('Moveable', tileset, 0, 0);
+        
+        // Set depths for each layer to control rendering order
+        this.map.createLayer('Ground', tileset, 0, 0).setDepth(DEPTHS.GROUND);
 
+        if (this.map.getLayer('Moveable')) {
+            this.moveableLayer = this.map.createLayer('Moveable', tileset, 0, 0).setDepth(DEPTHS.MOVEABLE);
+        } else {
+            this.moveableLayer = null;
+        }
         if (this.map.getLayer('Bridge')) {
-            this.map.createLayer('Bridge', tileset, 0, 0);
+            this.map.createLayer('Bridge', tileset, 0, 0).setDepth(DEPTHS.BRIDGE);
         }
         if (this.map.getLayer('Foliage')) {
-            this.map.createLayer('Foliage', tileset, 0, 0);
+            // Foliage should be on top
+            this.map.createLayer('Foliage', tileset, 0, 0).setDepth(DEPTHS.FOLIAGE);
         }
         this.groundLayer = this.map.getLayer('Ground').tilemapLayer;
         this.otherPlayers = this.add.group();
@@ -285,7 +299,7 @@ class GameScene extends Phaser.Scene {
             });
         });
 
-        this.socket.on('playerMoved', (playerInfo) => {
+       this.socket.on('playerMoved', (playerInfo) => {
             this.otherPlayers.getChildren().forEach((otherPlayer) => {
                 if (playerInfo.playerId === otherPlayer.playerId) {
                     this.tweens.add({
@@ -293,7 +307,11 @@ class GameScene extends Phaser.Scene {
                         x: this.player.gridToWorldPosition(playerInfo.x, playerInfo.y, true).x,
                         y: this.player.gridToWorldPosition(playerInfo.x, playerInfo.y, true).y,
                         duration: this.player.moveSpeed * 1.6,
-                        ease: 'Linear'
+                        ease: 'Linear',
+                        // Add an onUpdate callback to adjust depth during movement
+                        onUpdate: () => {
+                            otherPlayer.setDepth(otherPlayer.y);
+                        }
                     });
                     this.player.updateSpriteDirection.call({ sprite: otherPlayer }, playerInfo.direction);
                 }
@@ -338,6 +356,9 @@ class GameScene extends Phaser.Scene {
 
         const worldPos = this.player.gridToWorldPosition(playerInfo.x, playerInfo.y, true);
         const otherPlayer = this.add.sprite(worldPos.x, worldPos.y, 'cat1').setScale(0.3).setOrigin(0.35, 0.75);
+        
+        // Set the initial depth of the other player
+        otherPlayer.setDepth(worldPos.y);
         
         otherPlayer.playerId = playerInfo.playerId;
         this.otherPlayers.add(otherPlayer);
