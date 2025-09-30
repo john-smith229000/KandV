@@ -60,7 +60,7 @@ io.on('connection', (socket) => {
   console.log(`🔌 Player connected: ${socket.id}`);
 
   players[socket.id] = {
-    x: 14, y: 8, direction: 'down-right', playerId: socket.id,
+    x: 13, y: 11, direction: 'down-right', playerId: socket.id,
     currentMap: 'map' // Add default map
   };
 

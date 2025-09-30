@@ -46,146 +46,116 @@ export class IsometricHelper {
 
 // Updated player class for staggered maps with collision detection
 export class IsometricPlayer {
-  constructor(scene, startIsoX = 15, startIsoY = 18, socket) { // Start on a tile with data
+  constructor(scene, startIsoX = 15, startIsoY = 18, socket) {
     this.scene = scene;
     this.socket = socket;
-    this.tilemap = null; // Will be set from the scene
+    this.tilemap = null;
     this.waterSound = null;
     
-    // Grid position (in tile coordinates) - start on a visible tile
+    // Grid position (in tile coordinates)
     this.gridX = startIsoX;
     this.gridY = startIsoY;
     
-    // Create sprite - change the size here (width, height)
+    // Create sprite
     this.sprite = scene.add.sprite(0, 0, 'cat1').setScale(0.3).setOrigin(0.35, 0.75);
 
-    // 1. Give the sprite a physics body
+    // Give the sprite a physics body
     scene.physics.add.existing(this.sprite);
 
-    // 2. Adjust the physics body to be a smaller circle at the player's feet
-    //    This prevents the large, transparent parts of the sprite from triggering overlaps.
-    //    setCircle(radius)
+    // Adjust the physics body to be a smaller circle at the player's feet
     this.sprite.body.setCircle(35); 
-    //    setOffset(x, y) to center the new circle
-    this.sprite.body.setOffset(55, 130); 
+    this.sprite.body.setOffset(0, 0); 
 
     this.updatePosition();
     
     // Movement speed
-    this.defaultMoveSpeed = 125; // milliseconds per move
+    this.defaultMoveSpeed = 125;
     this.moveSpeed = this.defaultMoveSpeed;
     this.isMoving = false;
-
-
   }
 
-  // Set the tilemap reference so we can check tile data
+  // Set the tilemap reference
   setTilemap(tilemap) {
     this.tilemap = tilemap;
   }
 
-    // --- Robust tile check: bounds + coord lookup + world-sampling fallback ---
   isValidTile(gridX, gridY) {
     if (!this.tilemap) return true;
 
     const mapWidth = this.tilemap.width;
     const mapHeight = this.tilemap.height;
 
-    // explicit bounds check
+    // Explicit bounds check
     if (gridX < 0 || gridY < 0 || gridX >= mapWidth || gridY >= mapHeight) {
       console.log(`Out of bounds: (${gridX}, ${gridY})`);
       return false;
     }
 
-    // 1) check by tile coordinates (safe access; avoid falsy-0 bug)
+    // Check by tile coordinates - this uses the map's grid, not world positions
     const layerData = this.tilemap.getLayer('Ground').data;
     const row = layerData[gridY];
     const tileAtCoords = row ? row[gridX] : null;
     const validCoords = !!tileAtCoords && tileAtCoords.index !== -1;
 
-    // 2) also sample the tile at the *world center* of that grid cell using Phaser API,
-    //    this is important for staggered/isometric maps so we check the exact tile under the sprite.
-    let tileAtWorld = null;
-    if (typeof this.tilemap.getTileAtWorldXY === 'function') {
-      const center = this.gridToWorldPosition(gridX, gridY, true);
-      // getTileAtWorldXY(worldX, worldY, nonNull=false, camera?, layer?)
-      try {
-        tileAtWorld = this.tilemap.getTileAtWorldXY(
-          center.x, center.y,
-          false,
-          (this.scene && this.scene.cameras && this.scene.cameras.main) ? this.scene.cameras.main : undefined,
-          'Ground'
-        );
-      } catch (e) {
-        // some Phaser builds accept different params — ignore and fallback to coord check
-        tileAtWorld = null;
-      }
-    }
+    console.log(`Checking tile at (${gridX}, ${gridY}) -> tile:${tileAtCoords ? tileAtCoords.index : 'null'}`);
 
-    const validWorld = (tileAtWorld === null) ? true : (tileAtWorld && tileAtWorld.index !== -1);
-
-    console.log(
-      `Checking tile at (${gridX}, ${gridY}) -> coords:${tileAtCoords ? tileAtCoords.index : 'null'} world:${tileAtWorld ? tileAtWorld.index : 'null'}`
-    );
-
-    // require both checks to pass when world-sampling is available
-    return validCoords && validWorld;
+    return validCoords;
   }
 
-  // --- Convert grid -> world (returns tile CENTER by default) ---
+  // Convert grid coordinates to world position for rendering
+  // This uses the MAP'S built-in conversion to handle the staggered layout correctly
   gridToWorldPosition(gridX, gridY, center = true) {
-    // Prefer map's tile size if available
-    const tileWidth = this.tilemap ? this.tilemap.tileWidth : 32;
-    const tileHeight = this.tilemap ? this.tilemap.tileHeight : 32;
-
-    let worldX = gridX * tileWidth;
-    let worldY = gridY * (tileHeight / 2);
-
-    // staggered (odd rows offset right)
-    if (gridY % 2 === 1) {
-      worldX += tileWidth / 2;
+    if (!this.tilemap) {
+      // Fallback if no tilemap
+      return { x: gridX * 32, y: gridY * 16 };
     }
 
-    if (center) {
-      // move to center of the tile so sampling / sprite origin match
-      worldX += tileWidth / 2;
-      worldY += tileHeight / 2;
+    // Use Phaser's built-in tile-to-world conversion
+    // This automatically handles the map's tileWidth, tileHeight, and stagger settings
+    const worldPos = this.tilemap.tileToWorldXY(gridX, gridY);
+    
+    if (center && worldPos) {
+      // Phaser's tileToWorldXY gives us the top-left corner
+      // We need to add offsets to get to the center
+      // Use the actual rendered tile dimensions from the tileset
+      const tileset = this.tilemap.tilesets[0];
+      const visualWidth = tileset ? tileset.tileWidth : 32;
+      const visualHeight = tileset ? tileset.tileHeight : 32;
+      
+      worldPos.x += visualWidth / 2;
+      worldPos.y += visualHeight / 2;
     }
-
-    return { x: worldX, y: worldY };
+    
+    return worldPos || { x: 0, y: 0 };
   }
 
   updatePosition() {
     const worldPos = this.gridToWorldPosition(this.gridX, this.gridY);
     this.sprite.setPosition(worldPos.x, worldPos.y);
-    // Set depth based on y-coordinate for correct isometric sorting
     this.sprite.setDepth(worldPos.y);
   }
 
-
-animateTilePush(data) {
+  animateTilePush(data) {
     const { old, new: newPos, tileIndex } = data;
 
-    // Add a tab visibility check
+    // Tab visibility check
     if (document.hidden) {
-        // If tab is hidden, skip animation and just update final position
-        if (this.scene.moveableLayer) {
-            this.scene.moveableLayer.removeTileAt(old.x, old.y);
-            this.scene.moveableLayer.putTileAt(tileIndex, newPos.x, newPos.y);
-        }
-        return;
+      if (this.scene.moveableLayer) {
+        this.scene.moveableLayer.removeTileAt(old.x, old.y);
+        this.scene.moveableLayer.putTileAt(tileIndex, newPos.x, newPos.y);
+      }
+      return;
     }
 
-    // CRITICAL: Store the tile data BEFORE removing it
+    // Store the tile data BEFORE removing it
     const tileToMove = this.scene.moveableLayer ? this.scene.moveableLayer.getTileAt(old.x, old.y) : null;
     
-    // Only proceed if there's actually a tile to move
     if (!tileToMove || tileToMove.index === -1) {
-        console.warn('No tile found at position to animate:', old);
-        return;
+      console.warn('No tile found at position to animate:', old);
+      return;
     }
 
-    // Remove the tile from the old position ONLY after confirming it exists
+    // Remove the tile from the old position
     this.scene.moveableLayer.removeTileAt(old.x, old.y);
 
     // Animate the tile being pushed
@@ -196,18 +166,29 @@ animateTilePush(data) {
     const tileTextureKey = tileset.image.key;
     const columns = tileset.columns;
     const frameIndex = tileIndex - tileset.firstgid;
-    const frameX = (frameIndex % columns) * this.tilemap.tileWidth;
-    const frameY = Math.floor(frameIndex / columns) * this.tilemap.tileHeight;
+    
+    // Calculate frame position in the tileset
+    const frameX = (frameIndex % columns) * tileset.tileWidth;
+    const frameY = Math.floor(frameIndex / columns) * tileset.tileHeight;
 
-    const uniqueKey = `moving_tile_${Date.now()}_${Math.random()}`;  // More unique key
+    const uniqueKey = `moving_tile_${Date.now()}_${Math.random()}`;
     const texture = this.scene.textures.get(tileTextureKey);
     const source = texture.getSourceImage();
 
+    // Create canvas with the tileset's tile dimensions
     const canvas = document.createElement('canvas');
-    canvas.width = this.tilemap.tileWidth;
-    canvas.height = this.tilemap.tileHeight;
+    canvas.width = tileset.tileWidth;
+    canvas.height = tileset.tileHeight;
     const ctx = canvas.getContext('2d');
-    ctx.drawImage(source, frameX, frameY, this.tilemap.tileWidth, this.tilemap.tileHeight, 0, 0, this.tilemap.tileWidth, this.tilemap.tileHeight);
+    
+    // Draw the tile at its native size (no stretching)
+    ctx.drawImage(
+      source, 
+      frameX, frameY, 
+      tileset.tileWidth, tileset.tileHeight,
+      0, 0, 
+      tileset.tileWidth, tileset.tileHeight
+    );
 
     this.scene.textures.addCanvas(uniqueKey, canvas);
 
@@ -216,154 +197,137 @@ animateTilePush(data) {
     tempTileSprite.setDepth(tileWorldStart.y);
 
     this.scene.tweens.add({
-        targets: tempTileSprite,
-        x: tileWorldEnd.x,
-        y: tileWorldEnd.y,
-        onUpdate: () => {
-            tempTileSprite.setDepth(tempTileSprite.y);
-        },
-        duration: this.defaultMoveSpeed * 2 * 1.6,
-        ease: 'Linear',
-        onComplete: () => {
-            if (this.scene.moveableLayer) {
-                // Place the tile at the new position
-                this.scene.moveableLayer.putTileAt(tileIndex, newPos.x, newPos.y);
-            }
-            tempTileSprite.destroy();
-            this.scene.textures.remove(uniqueKey);
+      targets: tempTileSprite,
+      x: tileWorldEnd.x,
+      y: tileWorldEnd.y,
+      onUpdate: () => {
+        tempTileSprite.setDepth(tempTileSprite.y);
+      },
+      duration: this.defaultMoveSpeed * 2 * 1.6,
+      ease: 'Linear',
+      onComplete: () => {
+        if (this.scene.moveableLayer) {
+          this.scene.moveableLayer.putTileAt(tileIndex, newPos.x, newPos.y);
         }
+        tempTileSprite.destroy();
+        this.scene.textures.remove(uniqueKey);
+      }
     });
-}
+  }
 
-
-  // --- Move to grid position using world CENTER and collision check ---
-moveToGridPosition(targetGridX, targetGridY, direction) {
+  moveToGridPosition(targetGridX, targetGridY, direction) {
     if (this.isMoving) return;
-
-    // Prevent actions in hidden tabs
     if (document.hidden) return;
 
     // Check if there's a moveable tile at the target position
+    // Use getTileAt with grid coordinates - this works with the map's internal grid
     const moveableTile = this.scene.moveableLayer ? 
-        this.scene.moveableLayer.getTileAt(targetGridX, targetGridY, true) : null;  // Add 'true' for nonNull
+      this.scene.moveableLayer.getTileAt(targetGridX, targetGridY, true) : null;
     
     let isPushing = false;
 
     if (this.scene.moveableLayer && moveableTile && moveableTile.index !== -1) {
-        isPushing = true;
-  
-        let pushDeltaX = 0;
-        let pushDeltaY = 0;
+      isPushing = true;
+      
+      let pushDeltaX = 0;
+      let pushDeltaY = 0;
+      
+      switch(direction) {
+        case 'up-left': pushDeltaY = -1; pushDeltaX = (targetGridY % 2 === 1) ? 0 : -1; break;
+        case 'up-right': pushDeltaY = -1; pushDeltaX = (targetGridY % 2 === 1) ? 1 : 0; break;
+        case 'down-right': pushDeltaY = 1; pushDeltaX = (targetGridY % 2 === 1) ? 1 : 0; break;
+        case 'down-left': pushDeltaY = 1; pushDeltaX = (targetGridY % 2 === 1) ? 0 : -1; break;
+      }
+      
+      const pushToX = targetGridX + pushDeltaX;
+      const pushToY = targetGridY + pushDeltaY;
+
+      // Check if the destination tile is water - use grid coordinates
+      const groundTileAtTarget = this.tilemap.getTileAt(pushToX, pushToY, true, 'Ground');
+      const bridgeTileAtTarget = this.tilemap.getTileAt(pushToX, pushToY, true, 'Bridge');
+      const isBridgePresent = bridgeTileAtTarget && bridgeTileAtTarget.index !== -1;
+      const isWater = !isBridgePresent && groundTileAtTarget && groundTileAtTarget.properties.water === "1";
+
+      // Check if the destination is valid, empty, AND not water
+      const destinationTile = this.scene.moveableLayer.getTileAt(pushToX, pushToY, true);
+      if (this.isValidTile(pushToX, pushToY) && (!destinationTile || destinationTile.index === -1) && !isWater) {
+        const moveData = {
+          old: { x: targetGridX, y: targetGridY },
+          new: { x: pushToX, y: pushToY },
+          tileIndex: moveableTile.index
+        };
         
-        switch(direction) {
-            case 'up-left': pushDeltaY = -1; pushDeltaX = (targetGridY % 2 === 1) ? 0 : -1; break;
-            case 'up-right': pushDeltaY = -1; pushDeltaX = (targetGridY % 2 === 1) ? 1 : 0; break;
-            case 'down-right': pushDeltaY = 1; pushDeltaX = (targetGridY % 2 === 1) ? 1 : 0; break;
-            case 'down-left': pushDeltaY = 1; pushDeltaX = (targetGridY % 2 === 1) ? 0 : -1; break;
-        }
-        
-         const pushToX = targetGridX + pushDeltaX;
-        const pushToY = targetGridY + pushDeltaY;
-
-        // NEW: Check if the destination tile is water
-        const groundTileAtTarget = this.tilemap.getTileAt(pushToX, pushToY, true, 'Ground');
-        const bridgeTileAtTarget = this.tilemap.getTileAt(pushToX, pushToY, true, 'Bridge');
-        const isBridgePresent = bridgeTileAtTarget && bridgeTileAtTarget.index !== -1;
-        const isWater = !isBridgePresent && groundTileAtTarget && groundTileAtTarget.properties.water === "1";
-
-        // Check if the destination is valid, empty, AND not water
-        const destinationTile = this.scene.moveableLayer.getTileAt(pushToX, pushToY, true);
-        if (this.isValidTile(pushToX, pushToY) && (!destinationTile || destinationTile.index === -1) && !isWater) {
-            const moveData = {
-                old: { x: targetGridX, y: targetGridY },
-                new: { x: pushToX, y: pushToY },
-                tileIndex: moveableTile.index
-            };
-            
-            this.socket.emit('moveableTileMoved', moveData);
-            
-            // Call the animation function for the local player
-            this.animateTilePush(moveData);
-
-            this.moveSpeed = this.defaultMoveSpeed * 2;
-        } else {
-            return; // Blocked
-        }
+        this.socket.emit('moveableTileMoved', moveData);
+        this.animateTilePush(moveData);
+        this.moveSpeed = this.defaultMoveSpeed * 2;
+      } else {
+        console.log('Push blocked: destination invalid or water');
+        return; // Blocked
+      }
     } else {
-        if (!this.isValidTile(targetGridX, targetGridY)) {
-            return;
-        }
-        this.moveSpeed = this.defaultMoveSpeed;
+      if (!this.isValidTile(targetGridX, targetGridY)) {
+        return;
+      }
+      this.moveSpeed = this.defaultMoveSpeed;
     }
 
-    
-
-    // Water speed and sound check
+    // Water speed and sound check - use grid coordinates
     if (!isPushing) {
-        const bridgeTile = this.tilemap.getTileAt(targetGridX, targetGridY, true, 'Bridge');
-        const groundTile = this.tilemap.getTileAt(targetGridX, targetGridY, true, 'Ground');
-        const isBridgePresent = bridgeTile && bridgeTile.index !== -1;
-        const isWater = !isBridgePresent && groundTile && groundTile.properties.water === "1";
+      const bridgeTile = this.tilemap.getTileAt(targetGridX, targetGridY, true, 'Bridge');
+      const groundTile = this.tilemap.getTileAt(targetGridX, targetGridY, true, 'Ground');
+      const isBridgePresent = bridgeTile && bridgeTile.index !== -1;
+      const isWater = !isBridgePresent && groundTile && groundTile.properties.water === "1";
 
-        if (isWater) {
-            this.moveSpeed = this.defaultMoveSpeed * 2.0;
-            if (!this.waterSound || !this.waterSound.isPlaying) {
-                // If the sound object doesn't exist yet, create it.
-                if (!this.waterSound) {
-                    this.waterSound = this.scene.sound.add('water_sound', { loop: true });
-                }
-
-                // Start playing the sound.
-                this.waterSound.play();
-
-                // Get the total duration of the sound in seconds.
-                const duration = this.waterSound.duration;
-                
-                // If the duration is available, seek to a random point.
-                if (duration > 0) {
-                    const randomStart = Math.random() * duration;
-                    this.waterSound.seek = randomStart;
-                }
-            }
-        } else {
-            // Stop water sound if it is playing
-            if (this.waterSound && this.waterSound.isPlaying) {
-                this.waterSound.stop();
-            }
+      if (isWater) {
+        this.moveSpeed = this.defaultMoveSpeed * 2.0;
+        if (!this.waterSound || !this.waterSound.isPlaying) {
+          if (!this.waterSound) {
+            this.waterSound = this.scene.sound.add('water_sound', { loop: true });
+          }
+          this.waterSound.play();
+          const duration = this.waterSound.duration;
+          if (duration > 0) {
+            const randomStart = Math.random() * duration;
+            this.waterSound.seek = randomStart;
+          }
         }
-    } else {
-        // Also stop the sound if the player is pushing an object
+      } else {
         if (this.waterSound && this.waterSound.isPlaying) {
-            this.waterSound.stop();
+          this.waterSound.stop();
         }
+      }
+    } else {
+      if (this.waterSound && this.waterSound.isPlaying) {
+        this.waterSound.stop();
+      }
     }
 
-   // Player movement tween
+    // Player movement tween
     this.isMoving = true;
     this.updateSpriteDirection(direction);
     const endWorldPos = this.gridToWorldPosition(targetGridX, targetGridY, true);
 
     this.scene.tweens.add({
-        targets: this.sprite,
-        x: endWorldPos.x,
-        y: endWorldPos.y,
-        duration: this.moveSpeed * 1.6,
-        ease: 'Linear',
-        // Add onUpdate to continually set the player's depth while moving
-        onUpdate: () => {
-            this.sprite.setDepth(this.sprite.y);
-        },
-        onComplete: () => {
-            this.isMoving = false;
-            this.gridX = targetGridX;
-            this.gridY = targetGridY;
+      targets: this.sprite,
+      x: endWorldPos.x,
+      y: endWorldPos.y,
+      duration: this.moveSpeed * 1.6,
+      ease: 'Linear',
+      onUpdate: () => {
+        this.sprite.setDepth(this.sprite.y);
+      },
+      onComplete: () => {
+        this.isMoving = false;
+        this.gridX = targetGridX;
+        this.gridY = targetGridY;
 
-            if (this.socket) {
-                this.socket.emit('playerMovement', { x: this.gridX, y: this.gridY, direction: direction });
-            }
+        if (this.socket) {
+          this.socket.emit('playerMovement', { x: this.gridX, y: this.gridY, direction: direction });
         }
+      }
     });
-}
+  }
+
   updateSpriteDirection(direction) {
     switch (direction) {
       case 'up-right':
@@ -384,7 +348,7 @@ moveToGridPosition(targetGridX, targetGridY, direction) {
         break;
     }
   }
-   // --- Updated Input Handlers ---
+
   handleInput(cursors, wasd) {
     if (this.isMoving) return;
 
@@ -416,7 +380,7 @@ moveToGridPosition(targetGridX, targetGridY, direction) {
     }
   }
 
- handleJoystickInput(joystickCursors) {
+  handleJoystickInput(joystickCursors) {
     if (this.isMoving || !joystickCursors) return;
 
     let newGridX = this.gridX;
@@ -424,7 +388,6 @@ moveToGridPosition(targetGridX, targetGridY, direction) {
     let direction = null;
     const isOddRow = this.gridY % 2 === 1;
 
-    // We now check the 'isDown' property directly on the cursor data
     const up = joystickCursors.up.isDown;
     const down = joystickCursors.down.isDown;
     const left = joystickCursors.left.isDown;

@@ -91,7 +91,7 @@ class GameScene extends Phaser.Scene {
     constructor() {
         super({ key: 'GameScene' });
         this.currentMap = 'map';
-        this.spawnPos = { x: 14, y: 8 };
+        this.spawnPos = { x: 13, y: 11 };
         this.hasInitialized = false;
     }
     // This function runs when the scene is started or restarted
@@ -99,7 +99,7 @@ class GameScene extends Phaser.Scene {
         if (data.map) {
             this.currentMap = data.map;
         }
-        this.spawnPos = data.spawnPos || { x: 14, y: 8 };
+        this.spawnPos = data.spawnPos || { x: 13, y: 11 };
     }
 
     preload() {
@@ -236,9 +236,14 @@ this.socket.emit('playerChangedMap', {
                 if (obj.name === 'flowecircle' && obj.ellipse) {
                     const triggerZone = this.add.ellipse(obj.x + obj.width / 2, obj.y + obj.height / 2, obj.width, obj.height);
                     this.physics.add.existing(triggerZone, true);
+                    
+                    // Make the physics body circular (using average of width/height as radius)
+                    const radius = Math.min(obj.width, obj.height) / 2;
+                    triggerZone.body.setCircle(radius);
+                    
                     this.physics.add.overlap(this.player.sprite, triggerZone, () => {
                         console.log('Player entered the flower circle!');
-                        this.changeMap('heartmap', { x: 20, y: 20 });
+                        this.changeMap('heartmap', { x: 14, y: 22 });
                     });
                 }
             });
@@ -431,7 +436,7 @@ const config = {
         default: 'arcade',
         arcade: {
             gravity: { y: 0 }, // We don't need gravity for a top-down game
-            debug: false // Set to true to see physics bodies
+            debug: true // Set to true to see physics bodies
         }
     },
     plugins: {
