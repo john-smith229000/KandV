@@ -178,6 +178,30 @@ class GameScene extends Phaser.Scene {
         // NOW set up socket listeners
         this.setupSocketListeners();
 
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && this.socket && this.moveableLayer) {
+                console.log('Tab became active, cleaning up and syncing...');
+                
+                // Kill ALL tweens to stop any in-progress animations
+                this.tweens.killAll();
+                
+                // Destroy any temporary tile sprites
+                this.children.list.forEach(child => {
+                    if (child.texture && child.texture.key && child.texture.key.startsWith('moving_tile_')) {
+                        child.destroy();
+                        this.textures.remove(child.texture.key);
+                    }
+                });
+                
+                // Clear ALL other players before requesting update
+                this.otherPlayers.clear(true, true); // destroy children and remove from group
+                
+                // Request fresh state
+                this.socket.emit('requestMoveableTilesState');
+                this.socket.emit('requestPlayersUpdate');
+            }
+        });
+
         // Keyboard input
         this.cursors = this.input.keyboard.createCursorKeys();
         this.wasd = this.input.keyboard.addKeys('W,S,A,D');
@@ -251,6 +275,9 @@ this.socket.on('moveableTileUpdated', (data) => {
         // Now handle socket events
         this.socket.on('currentPlayers', (players) => {
             const selfId = this.socket.id;
+            
+            // Clear existing other players to prevent duplicates
+            this.otherPlayers.clear(true, true);
             
             // Request the current moveable tiles state
             this.socket.emit('requestMoveableTilesState');
@@ -327,22 +354,26 @@ this.socket.on('moveableTileUpdated', (data) => {
             this.isTeleporting = false;
             // Stop the UIScene before restarting GameScene
             this.scene.stop('UIScene');
-            // Pass the new map AND the new spawn position to the restarted scene
+            // Pass the new map AND the new spawn position to the restarted scenewd
             this.scene.restart({ map: mapKey, spawnPos: spawnPos });
         });
     }
     
     // Helper function to add other players
     addOtherPlayer(playerInfo) {
-        // We need a reference to the main player to use its helper methods
-        if (!this.player) return; 
+        if (!this.player) return;
+        
+        // Check if player already exists to prevent duplicates
+        const existingPlayer = this.otherPlayers.getChildren().find(p => p.playerId === playerInfo.playerId);
+        if (existingPlayer) {
+            console.warn('Player already exists, skipping duplicate:', playerInfo.playerId);
+            return;
+        }
 
         const worldPos = this.player.gridToWorldPosition(playerInfo.x, playerInfo.y, true);
         const otherPlayer = this.add.sprite(worldPos.x, worldPos.y, 'cat1').setScale(0.3).setOrigin(0.35, 0.75);
         
-        // Set the initial depth of the other player
         otherPlayer.setDepth(worldPos.y);
-        
         otherPlayer.playerId = playerInfo.playerId;
         this.otherPlayers.add(otherPlayer);
     }

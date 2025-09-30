@@ -149,6 +149,17 @@ io.on('connection', (socket) => {
     delete players[socket.id];
     io.emit('playerDisconnected', socket.id);
   });
+
+  socket.on('requestPlayersUpdate', () => {
+    // Send all player positions except the requester
+    const otherPlayers = {};
+    for (const id in players) {
+        if (id !== socket.id) {
+            otherPlayers[id] = players[id];
+        }
+    }
+    socket.emit('currentPlayers', otherPlayers);
+});
 });
 
 server.listen(port, () => {

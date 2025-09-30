@@ -165,6 +165,16 @@ export class IsometricPlayer {
 animateTilePush(data) {
     const { old, new: newPos, tileIndex } = data;
 
+    // Add a tab visibility check
+    if (document.hidden) {
+        // If tab is hidden, skip animation and just update final position
+        if (this.scene.moveableLayer) {
+            this.scene.moveableLayer.removeTileAt(old.x, old.y);
+            this.scene.moveableLayer.putTileAt(tileIndex, newPos.x, newPos.y);
+        }
+        return;
+    }
+
     // CRITICAL: Store the tile data BEFORE removing it
     const tileToMove = this.scene.moveableLayer ? this.scene.moveableLayer.getTileAt(old.x, old.y) : null;
     
@@ -228,6 +238,9 @@ animateTilePush(data) {
   // --- Move to grid position using world CENTER and collision check ---
 moveToGridPosition(targetGridX, targetGridY, direction) {
     if (this.isMoving) return;
+
+    // Prevent actions in hidden tabs
+    if (document.hidden) return;
 
     // Check if there's a moveable tile at the target position
     const moveableTile = this.scene.moveableLayer ? 
