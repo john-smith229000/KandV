@@ -59,14 +59,21 @@ app.post("/api/token", async (req, res) => {
 io.on('connection', (socket) => {
   console.log(`🔌 Player connected: ${socket.id}`);
 
-  players[socket.id] = {
-    x: 13, y: 11, direction: 'down-right', playerId: socket.id,
-    currentMap: 'map' // Add default map
-  };
+  // DON'T initialize the player here - wait for them to tell us where they are
+  // Remove this block:
+  // players[socket.id] = {
+  //   x: 13, y: 11, direction: 'down-right', playerId: socket.id,
+  //   currentMap: 'map'
+  // };
 
-  // Send ALL players initially (for backward compatibility)
-  socket.emit('currentPlayers', players);
+  // Just send empty players initially since they haven't told us their position yet
+  socket.emit('currentPlayers', {});
   
+  // Only send moveable tiles state
+  socket.emit('moveableTilesState', moveableTiles);
+  
+  // Remove the loop that notifies others - wait until playerChangedMap
+
   // Initialize moveable tiles handlers
   socket.on('initializeMoveableTiles', (tiles) => {
     if (Object.keys(moveableTiles).length === 0) {
@@ -88,7 +95,6 @@ io.on('connection', (socket) => {
       io.to(id).emit('newPlayer', players[socket.id]);
     }
   }
-
   // Listen for the 'meow' event from a client
   socket.on('meow', () => {
     io.emit('meow', socket.id);
@@ -110,38 +116,57 @@ io.on('connection', (socket) => {
   });
 
   socket.on('playerChangedMap', (data) => {
-      if (players[socket.id]) {
-          const oldMap = players[socket.id].currentMap;
-          
-          // Update player data
-          players[socket.id].currentMap = data.map;
-          players[socket.id].x = data.x;
-          players[socket.id].y = data.y;
-          
-          // Remove from old map viewers
-          for (const id in players) {
-              if (id !== socket.id && players[id].currentMap === oldMap) {
-                  io.to(id).emit('playerDisconnected', socket.id);
-              }
-          }
-          
-          // CRITICAL: Send existing players on new map to the teleporting player
-          const playersOnNewMap = {};
-          for (const id in players) {
-              if (id !== socket.id && players[id].currentMap === data.map) {
-                  playersOnNewMap[id] = players[id];
-              }
-          }
-          socket.emit('currentPlayers', playersOnNewMap);
-          
-          // Then notify others on new map that this player arrived
-          for (const id in players) {
-              if (id !== socket.id && players[id].currentMap === data.map) {
-                  io.to(id).emit('newPlayer', players[socket.id]);
-              }
-          }
-      }
-  });
+    // Initialize player if they don't exist (first connection)
+    if (!players[socket.id]) {
+        players[socket.id] = {
+            x: data.x,
+            y: data.y,
+            direction: 'down-right',
+            playerId: socket.id,
+            currentMap: data.map
+        };
+        
+        // Notify others on the same map about the new player
+        for (const id in players) {
+            if (id !== socket.id && players[id].currentMap === data.map) {
+                io.to(id).emit('newPlayer', players[socket.id]);
+            }
+        }
+    } else {
+        // Existing logic for map changes
+        const oldMap = players[socket.id].currentMap;
+        
+        // Update player data
+        players[socket.id].currentMap = data.map;
+        players[socket.id].x = data.x;
+        players[socket.id].y = data.y;
+        
+        // Remove from old map viewers
+        for (const id in players) {
+            if (id !== socket.id && players[id].currentMap === oldMap) {
+                io.to(id).emit('playerDisconnected', socket.id);
+            }
+        }
+    }
+    
+    // Send players on the same map
+    const playersOnSameMap = {};
+    for (const id in players) {
+        if (id !== socket.id && players[id].currentMap === data.map) {
+            playersOnSameMap[id] = players[id];
+        }
+    }
+    socket.emit('currentPlayers', playersOnSameMap);
+    
+    // Notify others on new map (if it's a map change)
+    if (players[socket.id]) {
+        for (const id in players) {
+            if (id !== socket.id && players[id].currentMap === data.map) {
+                io.to(id).emit('newPlayer', players[socket.id]);
+            }
+        }
+    }
+});
 
   socket.on('requestPlayersOnMap', (mapName) => {
     const playersOnMap = {};

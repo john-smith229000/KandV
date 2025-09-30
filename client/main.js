@@ -141,37 +141,48 @@ class GameScene extends Phaser.Scene {
         const tileset = this.map.addTilesetImage('spritesheet', 'tiles');
         
         // Set depths for each layer to control rendering order
-        this.map.createLayer('Ground', tileset, 0, 0).setDepth(DEPTHS.GROUND);
+        this.map.createLayer('Ground', tileset, 0, 0).setDepth(DEPTHS.GROUND).setCullPadding(4, 4); 
 
-        if (this.map.getLayer('Moveable')) {
-            this.moveableLayer = this.map.createLayer('Moveable', tileset, 0, 0).setDepth(DEPTHS.MOVEABLE);
-            
-            // CRITICAL: Send initial moveable tiles to server
-            const initialMoveableTiles = {};
-            this.moveableLayer.forEachTile(tile => {
-                if (tile && tile.index !== -1) {
-                    const tileId = `${tile.x},${tile.y}`;
-                    initialMoveableTiles[tileId] = {
-                        x: tile.x,
-                        y: tile.y,
-                        tileIndex: tile.index
-                    };
-                }
-            });
-            
-            // Only emit if we have tiles and we're the first player
-            if (Object.keys(initialMoveableTiles).length > 0) {
-                this.socket.emit('initializeMoveableTiles', initialMoveableTiles);
-            }
+       if (this.map.getLayer('Moveable')) {
+    this.moveableLayer = this.map.createLayer('Moveable', tileset, 0, 0).setDepth(DEPTHS.MOVEABLE).setCullPadding(4, 4); 
+    
+    // Add debugging
+    let tileCount = 0;
+    this.moveableLayer.forEachTile(tile => {
+        if (tile && tile.index !== -1) {
+            tileCount++;
+        }
+    });
+    console.log('Moveable layer created with', tileCount, 'tiles');
+    
+    // CRITICAL: Send initial moveable tiles to server
+    const initialMoveableTiles = {};
+    this.moveableLayer.forEachTile(tile => {
+        if (tile && tile.index !== -1) {
+            const tileId = `${tile.x},${tile.y}`;
+            initialMoveableTiles[tileId] = {
+                x: tile.x,
+                y: tile.y,
+                tileIndex: tile.index
+            };
+        }
+    });
+    
+    console.log('Sending initial tiles to server:', Object.keys(initialMoveableTiles).length);
+    
+    // Only emit if we have tiles and we're the first player
+    if (Object.keys(initialMoveableTiles).length > 0) {
+        this.socket.emit('initializeMoveableTiles', initialMoveableTiles);
+    }
         } else {
             this.moveableLayer = null;
         }
         if (this.map.getLayer('Bridge')) {
-            this.map.createLayer('Bridge', tileset, 0, 0).setDepth(DEPTHS.BRIDGE);
+            this.map.createLayer('Bridge', tileset, 0, 0).setDepth(DEPTHS.BRIDGE).setCullPadding(4, 4);
         }
         if (this.map.getLayer('Foliage')) {
             // Foliage should be on top
-            this.map.createLayer('Foliage', tileset, 0, 0).setDepth(DEPTHS.FOLIAGE);
+            this.map.createLayer('Foliage', tileset, 0, 0).setDepth(DEPTHS.FOLIAGE).setCullPadding(4, 4);
         }
         this.groundLayer = this.map.getLayer('Ground').tilemapLayer;
         this.otherPlayers = this.add.group();
@@ -206,6 +217,7 @@ class GameScene extends Phaser.Scene {
             map: this.currentMap,
             x: this.player ? this.player.gridX : this.spawnPos.x,
             y: this.player ? this.player.gridY : this.spawnPos.y
+
         });
     }
 });
@@ -218,6 +230,8 @@ class GameScene extends Phaser.Scene {
     setupSocketListeners() {
         // Create the player FIRST, before any socket events
         this.player = new IsometricPlayer(this, this.spawnPos.x, this.spawnPos.y, this.socket);
+        console.log('Player created at client grid position:', this.player.gridX, this.player.gridY);
+console.log('Player sprite world position:', this.player.sprite.x, this.player.sprite.y);
         this.player.setTilemap(this.map);
         this.cameras.main.startFollow(this.player.sprite, true);
         this.cameras.main.setZoom(2.8);
@@ -228,6 +242,7 @@ this.socket.emit('playerChangedMap', {
     x: this.spawnPos.x,
     y: this.spawnPos.y
 });
+console.log('Emitted playerChangedMap:', this.currentMap, this.spawnPos.x, this.spawnPos.y);
 
         // Set up trigger zones
         const triggerLayer = this.map.getObjectLayer('EllipseTrigger');
@@ -249,8 +264,23 @@ this.socket.emit('playerChangedMap', {
             });
         }
 
-       this.socket.on('moveableTilesState', (serverMoveableTiles) => {
-    if (!this.moveableLayer) return;
+      this.socket.on('moveableTilesState', (serverMoveableTiles) => {
+    console.log('Received moveable tiles from server:', Object.keys(serverMoveableTiles).length);
+    console.log('Server tiles data:', serverMoveableTiles);
+    
+    if (!this.moveableLayer) {
+        console.error('No moveable layer to place tiles!');
+        return;
+    }
+
+    // Log before clearing
+    let tilesBeforeClear = 0;
+    this.moveableLayer.forEachTile(tile => {
+        if (tile && tile.index !== -1) {
+            tilesBeforeClear++;
+        }
+    });
+    console.log('Tiles before clearing:', tilesBeforeClear);
 
     // Store current tile positions before clearing
     const currentTiles = {};
@@ -268,12 +298,16 @@ this.socket.emit('playerChangedMap', {
     });
 
     // Redraw them in their correct final positions from server state
+    let tilesPlaced = 0;
     for (const originalId in serverMoveableTiles) {
         const tileData = serverMoveableTiles[originalId];
         if (tileData && tileData.tileIndex !== undefined) {
             this.moveableLayer.putTileAt(tileData.tileIndex, tileData.x, tileData.y);
+            tilesPlaced++;
+            console.log(`Placed tile ${tileData.tileIndex} at (${tileData.x}, ${tileData.y})`);
         }
     }
+    console.log('Tiles placed from server:', tilesPlaced);
 });
 
 this.socket.on('moveableTileUpdated', (data) => {
@@ -436,7 +470,7 @@ const config = {
         default: 'arcade',
         arcade: {
             gravity: { y: 0 }, // We don't need gravity for a top-down game
-            debug: true // Set to true to see physics bodies
+            debug: false // Set to true to see physics bodies
         }
     },
     plugins: {

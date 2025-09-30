@@ -1,5 +1,6 @@
 // isometric.js - Helper functions for isometric games
 
+
 export class IsometricHelper {
   constructor(tileWidth = 64, tileHeight = 32) {
     this.tileWidth = tileWidth;
@@ -44,9 +45,10 @@ export class IsometricHelper {
   }
 }
 
+
 // Updated player class for staggered maps with collision detection
 export class IsometricPlayer {
-  constructor(scene, startIsoX = 15, startIsoY = 18, socket) {
+  constructor(scene, startIsoX = 13, startIsoY = 11, socket) {
     this.scene = scene;
     this.socket = socket;
     this.tilemap = null;
@@ -56,30 +58,30 @@ export class IsometricPlayer {
     this.gridX = startIsoX;
     this.gridY = startIsoY;
     
+    
     // Create sprite
     this.sprite = scene.add.sprite(0, 0, 'cat1').setScale(0.3).setOrigin(0.35, 0.75);
 
     // Give the sprite a physics body
     scene.physics.add.existing(this.sprite);
-
-    // Adjust the physics body to be a smaller circle at the player's feet
     this.sprite.body.setCircle(35); 
     this.sprite.body.setOffset(0, 0); 
 
-    this.updatePosition();
+    // DON'T update position yet - tilemap isn't set!
+    // this.updatePosition();  // REMOVE THIS LINE
     
     // Movement speed
     this.defaultMoveSpeed = 125;
     this.moveSpeed = this.defaultMoveSpeed;
     this.isMoving = false;
-  }
+}
 
-  // Set the tilemap reference
-  setTilemap(tilemap) {
+setTilemap(tilemap) {
     this.tilemap = tilemap;
-  }
+    this.updatePosition();  // Now update position since we have the tilemap
+}
 
-  isValidTile(gridX, gridY) {
+isValidTile(gridX, gridY) {
     if (!this.tilemap) return true;
 
     const mapWidth = this.tilemap.width;
@@ -87,8 +89,8 @@ export class IsometricPlayer {
 
     // Explicit bounds check
     if (gridX < 0 || gridY < 0 || gridX >= mapWidth || gridY >= mapHeight) {
-      console.log(`Out of bounds: (${gridX}, ${gridY})`);
-      return false;
+        console.log(`Out of bounds: (${gridX}, ${gridY})`);
+        return false;
     }
 
     // Check by tile coordinates - this uses the map's grid, not world positions
@@ -100,40 +102,42 @@ export class IsometricPlayer {
     console.log(`Checking tile at (${gridX}, ${gridY}) -> tile:${tileAtCoords ? tileAtCoords.index : 'null'}`);
 
     return validCoords;
-  }
+}
 
   // Convert grid coordinates to world position for rendering
   // This uses the MAP'S built-in conversion to handle the staggered layout correctly
-  gridToWorldPosition(gridX, gridY, center = true) {
+gridToWorldPosition(gridX, gridY, center = true) {
     if (!this.tilemap) {
-      // Fallback if no tilemap
-      return { x: gridX * 32, y: gridY * 16 };
+        return { x: gridX * 32, y: gridY * 16 };
     }
 
-    // Use Phaser's built-in tile-to-world conversion
-    // This automatically handles the map's tileWidth, tileHeight, and stagger settings
-    const worldPos = this.tilemap.tileToWorldXY(gridX, gridY);
+    // Get the raw world position from Phaser
+    let worldPos = this.tilemap.tileToWorldXY(gridX, gridY);
     
-    if (center && worldPos) {
-      // Phaser's tileToWorldXY gives us the top-left corner
-      // We need to add offsets to get to the center
-      // Use the actual rendered tile dimensions from the tileset
-      const tileset = this.tilemap.tilesets[0];
-      const visualWidth = tileset ? tileset.tileWidth : 32;
-      const visualHeight = tileset ? tileset.tileHeight : 32;
-      
-      worldPos.x += visualWidth / 2;
-      worldPos.y += visualHeight / 2;
+    if (!worldPos) {
+        console.error(`Failed to convert grid(${gridX}, ${gridY}) to world position`);
+        return { x: 0, y: 0 };
     }
     
-    return worldPos || { x: 0, y: 0 };
-  }
+    // Log what Phaser gives us
+    console.log(`Phaser tileToWorldXY for (${gridX}, ${gridY}): (${worldPos.x}, ${worldPos.y})`);
+    
+    if (center) {
+        // For staggered isometric maps, the centering needs to account for the actual tile dimensions
+        // The visual tile is 32x32, but the map uses tileHeight: 16 for overlap
+        worldPos.x += 32 / 2;  // Half of visual tile width
+        worldPos.y += 32 / 2;  // Half of visual tile height (not map's tileHeight!)
+    }
+    
+    return worldPos;
+}
 
-  updatePosition() {
+updatePosition() {
     const worldPos = this.gridToWorldPosition(this.gridX, this.gridY);
+    console.log(`Updating position: grid(${this.gridX}, ${this.gridY}) -> world(${worldPos.x}, ${worldPos.y})`);
     this.sprite.setPosition(worldPos.x, worldPos.y);
     this.sprite.setDepth(worldPos.y);
-  }
+}
 
   animateTilePush(data) {
     const { old, new: newPos, tileIndex } = data;
@@ -216,6 +220,10 @@ export class IsometricPlayer {
   }
 
   moveToGridPosition(targetGridX, targetGridY, direction) {
+    console.log('moveToGridPosition called:');
+    console.log('  Current grid:', this.gridX, this.gridY);
+    console.log('  Target grid:', targetGridX, targetGridY);
+    console.log('  Direction:', direction);
     if (this.isMoving) return;
     if (document.hidden) return;
 
@@ -375,8 +383,9 @@ export class IsometricPlayer {
       newGridX = this.gridX - (isOddRow ? 0 : 1);
     }
 
-    if (direction) {
-      this.moveToGridPosition(newGridX, newGridY, direction);
+   if (direction) {
+        console.log('Input detected - calculated new position:', newGridX, newGridY, 'from', this.gridX, this.gridY);
+        this.moveToGridPosition(newGridX, newGridY, direction);
     }
   }
 
