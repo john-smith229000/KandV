@@ -83,6 +83,15 @@ class UIScene extends Phaser.Scene {
 class GameScene extends Phaser.Scene {
     constructor() {
         super({ key: 'GameScene' });
+        this.currentMap = 'map';
+        this.spawnPos = { x: 14, y: 8 };
+    }
+    // This function runs when the scene is started or restarted
+    init(data) {
+        if (data.map) {
+            this.currentMap = data.map;
+        }
+        this.spawnPos = data.spawnPos || { x: 14, y: 8 };
     }
 
     preload() {
@@ -90,6 +99,7 @@ class GameScene extends Phaser.Scene {
         this.load.image('tiles', '/images/tiles/isometric tileset/spritesheet.png');
         //this.load.tilemapTiledJSON('map', '/images/maps/testmap2.json');
         this.load.tilemapTiledJSON('map', '/images/maps/testmap3.json');
+        this.load.tilemapTiledJSON('heartmap', '/images/maps/heartmap.json');
 
         // Load the new character sprites
         this.load.image('cat1', '/images/actors/cat1.png');
@@ -100,65 +110,87 @@ class GameScene extends Phaser.Scene {
     }
 
     create() {
-        this.scene.launch('UIScene');
+        // Relaunch UIScene every time
+        if (!this.scene.isActive('UIScene')) {
+            this.scene.launch('UIScene');
+        }
         
-        // --- Socket.IO Connection ---
-        const socketURL = window.location.protocol === 'https:' ? window.location.origin : 'http://localhost:3001';
-        this.socket = io(socketURL);
+        // Store socket in game registry so it persists across scene restarts
+        if (!this.game.registry.get('socket')) {
+            const socketURL = window.location.protocol === 'https' ? window.location.origin : 'http://localhost:3001';
+            const socket = io(socketURL);
+            this.game.registry.set('socket', socket);
+            this.socket = socket;
+        } else {
+            this.socket = this.game.registry.get('socket');
+            // Clean up old listeners before setting up new ones
+            this.socket.removeAllListeners();
+        }
 
-        const map = this.make.tilemap({ key: 'map' });
-        const tileset = map.addTilesetImage('spritesheet', 'tiles');
-        //this.groundLayer = map.createLayer('Tile Layer 1', tileset, 0, 0);
+        // Create the map BEFORE setting up socket listeners
+        this.map = this.make.tilemap({ key: this.currentMap });
+        const tileset = this.map.addTilesetImage('spritesheet', 'tiles');
+        this.map.createLayer('Ground', tileset, 0, 0);
 
-        // --- 2. Create each tile layer ---
-        // The order matters; layers created later will be drawn on top.
-        map.createLayer('Ground', tileset, 0, 0);
-        map.createLayer('Bridge', tileset, 0, 0);
-        map.createLayer('Foliage', tileset, 0, 0);
+        if (this.map.getLayer('Bridge')) {
+            this.map.createLayer('Bridge', tileset, 0, 0);
+        }
+        if (this.map.getLayer('Foliage')) {
+            this.map.createLayer('Foliage', tileset, 0, 0);
+        }
+        this.groundLayer = this.map.getLayer('Ground').tilemapLayer;
+        this.otherPlayers = this.add.group();
 
-        // Keep a reference to the ground layer for collision checks
-        this.groundLayer = map.getLayer('Ground').tilemapLayer;
+        // NOW set up socket listeners
+        this.setupSocketListeners();
 
-        this.otherPlayers = this.add.group(); // Group to hold other players
+        // Keyboard input
+        this.cursors = this.input.keyboard.createCursorKeys();
+        this.wasd = this.input.keyboard.addKeys('W,S,A,D');
+    }
 
-        // --- Socket.IO Listeners ---
+    setupSocketListeners() {
+        // Create the player FIRST, before any socket events
+        this.player = new IsometricPlayer(this, this.spawnPos.x, this.spawnPos.y, this.socket);
+        this.player.setTilemap(this.map);
+        this.cameras.main.startFollow(this.player.sprite, true);
+        this.cameras.main.setZoom(2.8);
+
+        // Set up trigger zones
+        const triggerLayer = this.map.getObjectLayer('EllipseTrigger');
+        if (triggerLayer && this.player) {
+            triggerLayer.objects.forEach(obj => {
+                if (obj.name === 'flowecircle' && obj.ellipse) {
+                    const triggerZone = this.add.ellipse(obj.x + obj.width / 2, obj.y + obj.height / 2, obj.width, obj.height);
+                    this.physics.add.existing(triggerZone, true);
+                    this.physics.add.overlap(this.player.sprite, triggerZone, () => {
+                        console.log('Player entered the flower circle!');
+                        this.changeMap('heartmap', { x: 20, y: 20 });
+                    });
+                }
+            });
+        }
+
+        // Now handle socket events
         this.socket.on('currentPlayers', (players) => {
             const selfId = this.socket.id;
-            const selfData = players[selfId];
-
-            // --- PLAYER AND CAMERA LOGIC MOVED HERE ---
-            if (selfData) {
-                this.player = new IsometricPlayer(this, selfData.x, selfData.y, this.socket);
-                this.player.setTilemap(map);
-
-                // Now that the player exists, set up the camera
-                this.cameras.main.startFollow(this.player.sprite, true);
-                this.cameras.main.setZoom(2.8);
+            
+            // Notify server of our position if we teleported to a different map
+            if (this.currentMap !== 'map') {
+                this.socket.emit('playerTeleport', this.spawnPos);
             }
-            // --- END OF MOVED LOGIC ---
 
             Object.keys(players).forEach((id) => {
                 if (id !== selfId) {
-                    this.addOtherPlayer(players[id]);
+                this.addOtherPlayer(players[id]);
                 }
             });
-
-            // --- Process the Object Layer AFTER player is created ---
-            const triggerLayer = map.getObjectLayer('EllipseTrigger');
-            if (triggerLayer && this.player) {
-                triggerLayer.objects.forEach(obj => {
-                    if (obj.name === 'flowecircle' && obj.ellipse) {
-                        const triggerZone = this.add.ellipse(obj.x + obj.width / 2, obj.y + obj.height / 2, obj.width, obj.height);
-                        this.physics.add.existing(triggerZone, true);
-                        this.physics.add.overlap(this.player.sprite, triggerZone, () => {
-                            console.log('Player entered the flower circle!');
-                        });
-                    }
-                });
-            }
         });
 
         this.socket.on('newPlayer', (playerInfo) => {
+            if (playerInfo.playerId === this.socket.id) {
+                return;
+            }
             this.addOtherPlayer(playerInfo);
         });
 
@@ -173,7 +205,6 @@ class GameScene extends Phaser.Scene {
         this.socket.on('playerMoved', (playerInfo) => {
             this.otherPlayers.getChildren().forEach((otherPlayer) => {
                 if (playerInfo.playerId === otherPlayer.playerId) {
-                    // Use a tween for smooth movement
                     this.tweens.add({
                         targets: otherPlayer,
                         x: this.player.gridToWorldPosition(playerInfo.x, playerInfo.y, true).x,
@@ -181,30 +212,40 @@ class GameScene extends Phaser.Scene {
                         duration: this.player.moveSpeed * 1.6,
                         ease: 'Linear'
                     });
-                    // Update sprite texture and flip
                     this.player.updateSpriteDirection.call({ sprite: otherPlayer }, playerInfo.direction);
                 }
             });
         });
 
-        // --- Listen for the event from the UI Scene ---
-
-        // Listen for the 'meow' event broadcasted from the server
         this.socket.on('meow', (playerId) => {
-            // You can optionally use the playerId to do something,
-            // like show who meowed. For now, we'll just play the sound.
-            this.sound.play('meow_sound');
+        this.sound.play('meow_sound');
         });
+    }
 
-        this.game.events.on('joystick-update', (cursors) => {
-            // If the player exists, pass the joystick data to it
-            if (this.player) {
-                this.player.handleJoystickInput(cursors);
-            }
+
+    shutdown() {
+        console.log("Scene shutting down, removing listeners...");
+        // This removes all listeners from the socket, preventing duplicates
+        if (this.socket) {
+            this.socket.removeAllListeners();
+        }
+    }
+
+    changeMap(mapKey, spawnPos) {
+        // Prevent the teleport from triggering multiple times
+        if (this.isTeleporting) return;
+        this.isTeleporting = true;
+
+        // Fade the camera to black
+        this.cameras.main.fadeOut(500, 0, 0, 0);
+
+        this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+            this.isTeleporting = false;
+            // Stop the UIScene before restarting GameScene
+            this.scene.stop('UIScene');
+            // Pass the new map AND the new spawn position to the restarted scene
+            this.scene.restart({ map: mapKey, spawnPos: spawnPos });
         });
-
-        this.cursors = this.input.keyboard.createCursorKeys();
-        this.wasd = this.input.keyboard.addKeys('W,S,A,D');
     }
     
     // Helper function to add other players

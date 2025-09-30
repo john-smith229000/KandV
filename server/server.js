@@ -80,6 +80,17 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Listen for when a player teleports to a new map
+  socket.on('playerTeleport', (newPosition) => {
+    if (players[socket.id]) {
+      players[socket.id].x = newPosition.x;
+      players[socket.id].y = newPosition.y;
+      
+      // Notify other players of the "move" to the new location
+      socket.broadcast.emit('playerMoved', players[socket.id]);
+    }
+  });
+
   socket.on('disconnect', () => {
     console.log(`🔌 Player disconnected: ${socket.id}`);
     delete players[socket.id];
