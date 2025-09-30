@@ -24,6 +24,7 @@ const io = new Server(server, {
 
 const port = 3001;
 const players = {};
+const moveableTiles = {};
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../client/dist')));
@@ -63,6 +64,21 @@ io.on('connection', (socket) => {
   };
 
   socket.emit('currentPlayers', players);
+  socket.on('initializeMoveableTiles', (tiles) => {
+    // Only accept initialization if no tiles exist yet
+    if (Object.keys(moveableTiles).length === 0) {
+        console.log('Initializing moveable tiles from first player');
+        Object.assign(moveableTiles, tiles);
+    }
+    // Always send current state back to ensure sync
+    socket.emit('moveableTilesState', moveableTiles);
+});
+
+  socket.on('requestMoveableTilesState', () => {
+    socket.emit('moveableTilesState', moveableTiles);
+});
+  // Send the current state of all tiles to the new player
+  socket.emit('moveableTilesState', moveableTiles);
   socket.broadcast.emit('newPlayer', players[socket.id]);
 
   // Listen for the 'meow' event from a client
@@ -81,8 +97,40 @@ io.on('connection', (socket) => {
   });
 
  socket.on('moveableTileMoved', (data) => {
-    // Broadcast the move with tile index to all other players
+    // Validate the data
+    if (!data || !data.old || !data.new || data.tileIndex === undefined) {
+        console.error('Invalid moveableTileMoved data:', data);
+        return;
+    }
+    
+    // Find or create the tile ID
+    let originalTileId = null;
+    for (const id in moveableTiles) {
+        const tile = moveableTiles[id];
+        if (tile.x === data.old.x && tile.y === data.old.y) {
+            originalTileId = id;
+            break;
+        }
+    }
+    
+    if (!originalTileId) {
+        originalTileId = `${data.old.x},${data.old.y}`;
+    }
+    
+    // Update the server state
+    moveableTiles[originalTileId] = {
+        x: data.new.x,
+        y: data.new.y,
+        tileIndex: data.tileIndex
+    };
+    
+    // Broadcast the animation to other clients
     socket.broadcast.emit('moveableTileUpdated', data);
+    
+    // Also send the updated state to ensure consistency
+    setTimeout(() => {
+        io.emit('moveableTilesState', moveableTiles);
+    }, 400); // Send state update after animation starts
 });
 
   // Listen for when a player teleports to a new map

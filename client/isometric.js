@@ -162,135 +162,114 @@ export class IsometricPlayer {
   }
 
 
+animateTilePush(data) {
+    const { old, new: newPos, tileIndex } = data;
+
+    // CRITICAL: Store the tile data BEFORE removing it
+    const tileToMove = this.scene.moveableLayer ? this.scene.moveableLayer.getTileAt(old.x, old.y) : null;
+    
+    // Only proceed if there's actually a tile to move
+    if (!tileToMove || tileToMove.index === -1) {
+        console.warn('No tile found at position to animate:', old);
+        return;
+    }
+
+    // Remove the tile from the old position ONLY after confirming it exists
+    this.scene.moveableLayer.removeTileAt(old.x, old.y);
+
+    // Animate the tile being pushed
+    const tileWorldStart = this.gridToWorldPosition(old.x, old.y, true);
+    const tileWorldEnd = this.gridToWorldPosition(newPos.x, newPos.y, true);
+    
+    const tileset = this.scene.map.tilesets[0];
+    const tileTextureKey = tileset.image.key;
+    const columns = tileset.columns;
+    const frameIndex = tileIndex - tileset.firstgid;
+    const frameX = (frameIndex % columns) * this.tilemap.tileWidth;
+    const frameY = Math.floor(frameIndex / columns) * this.tilemap.tileHeight;
+
+    const uniqueKey = `moving_tile_${Date.now()}_${Math.random()}`;  // More unique key
+    const texture = this.scene.textures.get(tileTextureKey);
+    const source = texture.getSourceImage();
+
+    const canvas = document.createElement('canvas');
+    canvas.width = this.tilemap.tileWidth;
+    canvas.height = this.tilemap.tileHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(source, frameX, frameY, this.tilemap.tileWidth, this.tilemap.tileHeight, 0, 0, this.tilemap.tileWidth, this.tilemap.tileHeight);
+
+    this.scene.textures.addCanvas(uniqueKey, canvas);
+
+    const tempTileSprite = this.scene.add.sprite(tileWorldStart.x, tileWorldStart.y, uniqueKey);
+    tempTileSprite.setOrigin(0.5, 0.5);
+    tempTileSprite.setDepth(tileWorldStart.y);
+
+    this.scene.tweens.add({
+        targets: tempTileSprite,
+        x: tileWorldEnd.x,
+        y: tileWorldEnd.y,
+        onUpdate: () => {
+            tempTileSprite.setDepth(tempTileSprite.y);
+        },
+        duration: this.defaultMoveSpeed * 2 * 1.6,
+        ease: 'Linear',
+        onComplete: () => {
+            if (this.scene.moveableLayer) {
+                // Place the tile at the new position
+                this.scene.moveableLayer.putTileAt(tileIndex, newPos.x, newPos.y);
+            }
+            tempTileSprite.destroy();
+            this.scene.textures.remove(uniqueKey);
+        }
+    });
+}
+
+
   // --- Move to grid position using world CENTER and collision check ---
 moveToGridPosition(targetGridX, targetGridY, direction) {
-     if (this.isMoving) return;
+    if (this.isMoving) return;
 
-    // Check if the moveable layer exists before trying to get a tile from it.
-    const moveableTile = this.scene.moveableLayer ? this.scene.moveableLayer.getTileAt(targetGridX, targetGridY) : null;
+    // Check if there's a moveable tile at the target position
+    const moveableTile = this.scene.moveableLayer ? 
+        this.scene.moveableLayer.getTileAt(targetGridX, targetGridY, true) : null;  // Add 'true' for nonNull
+    
     let isPushing = false;
 
-    // --- PUSH LOGIC ---
-    // Also check if the moveableLayer exists before entering the push logic.
     if (this.scene.moveableLayer && moveableTile && moveableTile.index !== -1) {
         isPushing = true;
-        
-        // Calculate push direction based on movement direction
+  
         let pushDeltaX = 0;
         let pushDeltaY = 0;
         
         switch(direction) {
-            case 'up-left':
-                pushDeltaY = -1;
-                pushDeltaX = (targetGridY % 2 === 1) ? 0 : -1;
-                break;
-            case 'up-right':
-                pushDeltaY = -1;
-                pushDeltaX = (targetGridY % 2 === 1) ? 1 : 0;
-                break;
-            case 'down-right':
-                pushDeltaY = 1;
-                pushDeltaX = (targetGridY % 2 === 1) ? 1 : 0;
-                break;
-            case 'down-left':
-                pushDeltaY = 1;
-                pushDeltaX = (targetGridY % 2 === 1) ? 0 : -1;
-                break;
+            case 'up-left': pushDeltaY = -1; pushDeltaX = (targetGridY % 2 === 1) ? 0 : -1; break;
+            case 'up-right': pushDeltaY = -1; pushDeltaX = (targetGridY % 2 === 1) ? 1 : 0; break;
+            case 'down-right': pushDeltaY = 1; pushDeltaX = (targetGridY % 2 === 1) ? 1 : 0; break;
+            case 'down-left': pushDeltaY = 1; pushDeltaX = (targetGridY % 2 === 1) ? 0 : -1; break;
         }
         
         const pushToX = targetGridX + pushDeltaX;
         const pushToY = targetGridY + pushDeltaY;
 
-        // Check if the space behind the tile is valid and empty
-        if (this.isValidTile(pushToX, pushToY) && !this.scene.moveableLayer.hasTileAt(pushToX, pushToY)) {
-            // Valid push - emit to server
-            this.socket.emit('moveableTileMoved', {
+        // Check if the destination is valid AND empty
+        const destinationTile = this.scene.moveableLayer.getTileAt(pushToX, pushToY, true);
+        if (this.isValidTile(pushToX, pushToY) && (!destinationTile || destinationTile.index === -1)) {
+            const moveData = {
                 old: { x: targetGridX, y: targetGridY },
                 new: { x: pushToX, y: pushToY },
                 tileIndex: moveableTile.index
-            });
-
-            // Animate the tile being pushed
-            const tileWorldStart = this.gridToWorldPosition(targetGridX, targetGridY, true);
-            const tileWorldEnd = this.gridToWorldPosition(pushToX, pushToY, true);
+            };
             
-            // Get the tileset information
-            const tileset = this.scene.map.tilesets[0];
-            const tileTextureKey = tileset.image.key;
+            this.socket.emit('moveableTileMoved', moveData);
             
-            // Calculate which frame from the texture atlas
-            const columns = tileset.columns;
-            const tileIndex = moveableTile.index - tileset.firstgid;
-            const frameX = (tileIndex % columns) * this.tilemap.tileWidth;
-            const frameY = Math.floor(tileIndex / columns) * this.tilemap.tileHeight;
-
-            // Create a unique key for this tile texture
-            const uniqueKey = `moving_tile_${Date.now()}`;
-
-            // Get the source texture
-            const texture = this.scene.textures.get(tileTextureKey);
-            const source = texture.getSourceImage();
-
-            // Create a canvas to extract the tile
-            const canvas = document.createElement('canvas');
-            canvas.width = this.tilemap.tileWidth;
-            canvas.height = this.tilemap.tileHeight;
-            const ctx = canvas.getContext('2d');
-
-            // Draw the specific tile from the spritesheet
-            ctx.drawImage(
-                source,
-                frameX, frameY, this.tilemap.tileWidth, this.tilemap.tileHeight,
-                0, 0, this.tilemap.tileWidth, this.tilemap.tileHeight
-            );
-
-            // Add the canvas as a texture
-            this.scene.textures.addCanvas(uniqueKey, canvas);
-
-            // Now create a sprite using the saved texture
-            const tempTileSprite = this.scene.add.sprite(
-                tileWorldStart.x, 
-                tileWorldStart.y,
-                uniqueKey
-            );
-            
-            // Set origin to center for proper positioning
-            tempTileSprite.setOrigin(0.5, 0.5);
-            
-            // Calculate depth based on Y position (isometric sorting)
-            const startDepth = tileWorldStart.y;
-            tempTileSprite.setDepth(startDepth);
-
-            // Remove the tile from the layer immediately
-            this.scene.moveableLayer.removeTileAt(targetGridX, targetGridY);
-
-            /// Tween the temporary sprite to the new position
-            this.scene.tweens.add({
-                targets: tempTileSprite,
-                x: tileWorldEnd.x,
-                y: tileWorldEnd.y,
-                // Continuously update depth for proper sorting during animation
-                onUpdate: () => {
-                    tempTileSprite.setDepth(tempTileSprite.y);
-                },
-                duration: this.defaultMoveSpeed * 2 * 1.6,
-                ease: 'Linear',
-                onComplete: () => {
-                    // Place the tile at the new position
-                    this.scene.moveableLayer.putTileAt(moveableTile.index, pushToX, pushToY);
-                    tempTileSprite.destroy();
-                    // Clean up the temporary texture
-                    this.scene.textures.remove(uniqueKey);
-                }
-            });
+            // Call the animation function for the local player
+            this.animateTilePush(moveData);
 
             this.moveSpeed = this.defaultMoveSpeed * 2;
         } else {
-            // Blocked - cannot push
-            return;
+            return; // Blocked
         }
     } else {
-        // Normal movement
         if (!this.isValidTile(targetGridX, targetGridY)) {
             return;
         }
