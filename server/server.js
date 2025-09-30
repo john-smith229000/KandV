@@ -80,6 +80,11 @@ io.on('connection', (socket) => {
     }
   });
 
+ socket.on('moveableTileMoved', (data) => {
+    // Broadcast the move with tile index to all other players
+    socket.broadcast.emit('moveableTileUpdated', data);
+});
+
   // Listen for when a player teleports to a new map
   socket.on('playerTeleport', (newPosition) => {
     if (players[socket.id]) {

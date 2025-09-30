@@ -131,6 +131,7 @@ class GameScene extends Phaser.Scene {
         this.map = this.make.tilemap({ key: this.currentMap });
         const tileset = this.map.addTilesetImage('spritesheet', 'tiles');
         this.map.createLayer('Ground', tileset, 0, 0);
+        this.moveableLayer = this.map.createLayer('Moveable', tileset, 0, 0);
 
         if (this.map.getLayer('Bridge')) {
             this.map.createLayer('Bridge', tileset, 0, 0);
@@ -140,6 +141,7 @@ class GameScene extends Phaser.Scene {
         }
         this.groundLayer = this.map.getLayer('Ground').tilemapLayer;
         this.otherPlayers = this.add.group();
+        this.moveableTiles = this.add.group();
 
         // NOW set up socket listeners
         this.setupSocketListeners();
@@ -170,6 +172,87 @@ class GameScene extends Phaser.Scene {
                 }
             });
         }
+
+        this.socket.on('moveableTilesState', (serverMoveableTiles) => {
+        for (const tileId in serverMoveableTiles) {
+            const tileData = serverMoveableTiles[tileId];
+            const [originalX, originalY] = tileId.split(',').map(Number);
+            const originalTile = this.moveableLayer.getTileAt(originalX, originalY);
+            if (originalTile) {
+                this.moveableLayer.putTileAt(originalTile.index, tileData.x, tileData.y);
+                this.moveableLayer.removeTileAt(originalX, originalY);
+            }
+        }
+    });
+
+   this.socket.on('moveableTileUpdated', (data) => {
+    const tileWorldStart = this.player.gridToWorldPosition(data.old.x, data.old.y, true);
+    const tileWorldEnd = this.player.gridToWorldPosition(data.new.x, data.new.y, true);
+    
+    // Get the tileset information
+    const tileset = this.map.tilesets[0];
+    const tileTextureKey = tileset.image.key;
+    
+    // Calculate which frame from the texture atlas
+    const columns = tileset.columns;
+    const tileIndex = data.tileIndex - tileset.firstgid;
+    const frameX = (tileIndex % columns) * this.map.tileWidth;
+    const frameY = Math.floor(tileIndex / columns) * this.map.tileHeight;
+    
+    // Create a unique key for this tile texture
+    const uniqueKey = `moving_tile_${Date.now()}`;
+    
+    // Get the source texture
+    const texture = this.textures.get(tileTextureKey);
+    const source = texture.getSourceImage();
+    
+    // Create a canvas to extract the tile
+    const canvas = document.createElement('canvas');
+    canvas.width = this.map.tileWidth;
+    canvas.height = this.map.tileHeight;
+    const ctx = canvas.getContext('2d');
+    
+    // Draw the specific tile from the spritesheet
+    ctx.drawImage(
+        source,
+        frameX, frameY, this.map.tileWidth, this.map.tileHeight,
+        0, 0, this.map.tileWidth, this.map.tileHeight
+    );
+    
+    // Add the canvas as a texture
+    this.textures.addCanvas(uniqueKey, canvas);
+    
+    // Now create a sprite using the saved texture
+    const tempTileSprite = this.add.sprite(
+        tileWorldStart.x, 
+        tileWorldStart.y,
+        uniqueKey
+    );
+    
+    // Set origin to center
+    tempTileSprite.setOrigin(0.5, 0.5);
+    
+    // Set depth for proper layering
+    const startDepth = tileWorldStart.y + 10000;
+    tempTileSprite.setDepth(startDepth);
+
+    this.moveableLayer.removeTileAt(data.old.x, data.old.y);
+
+    this.tweens.add({
+        targets: tempTileSprite,
+        x: tileWorldEnd.x,
+        y: tileWorldEnd.y,
+        depth: tileWorldEnd.y + 10000,
+        duration: this.player.defaultMoveSpeed * 2 * 1.6,
+        ease: 'Linear',
+        onComplete: () => {
+            this.moveableLayer.putTileAt(data.tileIndex, data.new.x, data.new.y);
+            tempTileSprite.destroy();
+            // Clean up the temporary texture
+            this.textures.remove(uniqueKey);
+        }
+    });
+});
 
         // Now handle socket events
         this.socket.on('currentPlayers', (players) => {

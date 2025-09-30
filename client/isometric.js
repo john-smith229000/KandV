@@ -160,55 +160,169 @@ export class IsometricPlayer {
   }
 
   // --- Move to grid position using world CENTER and collision check ---
-  moveToGridPosition(targetGridX, targetGridY, direction) {
-    if (this.isMoving) return;
-    if (!this.isValidTile(targetGridX, targetGridY)) {
-      return;
+moveToGridPosition(targetGridX, targetGridY, direction) {
+     if (this.isMoving) return;
+
+    const moveableTile = this.scene.moveableLayer.getTileAt(targetGridX, targetGridY);
+    let isPushing = false;
+
+    // --- PUSH LOGIC ---
+    if (moveableTile && moveableTile.index !== -1) {
+        isPushing = true;
+        
+        // Calculate push direction based on movement direction
+        let pushDeltaX = 0;
+        let pushDeltaY = 0;
+        
+        switch(direction) {
+            case 'up-left':
+                pushDeltaY = -1;
+                pushDeltaX = (targetGridY % 2 === 1) ? 0 : -1;
+                break;
+            case 'up-right':
+                pushDeltaY = -1;
+                pushDeltaX = (targetGridY % 2 === 1) ? 1 : 0;
+                break;
+            case 'down-right':
+                pushDeltaY = 1;
+                pushDeltaX = (targetGridY % 2 === 1) ? 1 : 0;
+                break;
+            case 'down-left':
+                pushDeltaY = 1;
+                pushDeltaX = (targetGridY % 2 === 1) ? 0 : -1;
+                break;
+        }
+        
+        const pushToX = targetGridX + pushDeltaX;
+        const pushToY = targetGridY + pushDeltaY;
+
+        // Check if the space behind the tile is valid and empty
+        if (this.isValidTile(pushToX, pushToY) && !this.scene.moveableLayer.hasTileAt(pushToX, pushToY)) {
+            // Valid push - emit to server
+            this.socket.emit('moveableTileMoved', {
+                old: { x: targetGridX, y: targetGridY },
+                new: { x: pushToX, y: pushToY },
+                tileIndex: moveableTile.index
+            });
+
+            // Animate the tile being pushed
+            const tileWorldStart = this.gridToWorldPosition(targetGridX, targetGridY, true);
+            const tileWorldEnd = this.gridToWorldPosition(pushToX, pushToY, true);
+            
+            // Get the tileset information
+            const tileset = this.scene.map.tilesets[0];
+            const tileTextureKey = tileset.image.key;
+            
+            // Calculate which frame from the texture atlas
+            const columns = tileset.columns;
+            const tileIndex = moveableTile.index - tileset.firstgid;
+            const frameX = (tileIndex % columns) * this.tilemap.tileWidth;
+            const frameY = Math.floor(tileIndex / columns) * this.tilemap.tileHeight;
+
+            // Create a unique key for this tile texture
+            const uniqueKey = `moving_tile_${Date.now()}`;
+
+            // Get the source texture
+            const texture = this.scene.textures.get(tileTextureKey);
+            const source = texture.getSourceImage();
+
+            // Create a canvas to extract the tile
+            const canvas = document.createElement('canvas');
+            canvas.width = this.tilemap.tileWidth;
+            canvas.height = this.tilemap.tileHeight;
+            const ctx = canvas.getContext('2d');
+
+            // Draw the specific tile from the spritesheet
+            ctx.drawImage(
+                source,
+                frameX, frameY, this.tilemap.tileWidth, this.tilemap.tileHeight,
+                0, 0, this.tilemap.tileWidth, this.tilemap.tileHeight
+            );
+
+            // Add the canvas as a texture
+            this.scene.textures.addCanvas(uniqueKey, canvas);
+
+            // Now create a sprite using the saved texture
+            const tempTileSprite = this.scene.add.sprite(
+                tileWorldStart.x, 
+                tileWorldStart.y,
+                uniqueKey
+            );
+            
+            // Set origin to center for proper positioning
+            tempTileSprite.setOrigin(0.5, 0.5);
+            
+            // Calculate depth based on Y position (isometric sorting)
+            const startDepth = tileWorldStart.y + 10000;
+            tempTileSprite.setDepth(startDepth);
+
+            // Remove the tile from the layer immediately
+            this.scene.moveableLayer.removeTileAt(targetGridX, targetGridY);
+
+            // Tween the temporary sprite to the new position
+            this.scene.tweens.add({
+                targets: tempTileSprite,
+                x: tileWorldEnd.x,
+                y: tileWorldEnd.y,
+                depth: tileWorldEnd.y + 10000,
+                duration: this.defaultMoveSpeed * 2 * 1.6,
+                ease: 'Linear',
+                onComplete: () => {
+                    // Place the tile at the new position
+                    this.scene.moveableLayer.putTileAt(moveableTile.index, pushToX, pushToY);
+                    tempTileSprite.destroy();
+                    // Clean up the temporary texture
+                    this.scene.textures.remove(uniqueKey);
+                }
+            });
+
+            this.moveSpeed = this.defaultMoveSpeed * 2;
+        } else {
+            // Blocked - cannot push
+            return;
+        }
+    } else {
+        // Normal movement
+        if (!this.isValidTile(targetGridX, targetGridY)) {
+            return;
+        }
+        this.moveSpeed = this.defaultMoveSpeed;
     }
 
-    // Check layers from top to bottom for properties.
-    const bridgeTile = this.tilemap.getTileAt(targetGridX, targetGridY, true, 'Bridge');
-    const groundTile = this.tilemap.getTileAt(targetGridX, targetGridY, true, 'Ground');
-
-    // Default to normal speed
-    this.moveSpeed = this.defaultMoveSpeed;
-
-    // Check if there is an actual, visible tile on the bridge layer.
-    // A tile with an index of -1 is an empty space.
-    const isBridgePresent = bridgeTile && bridgeTile.index !== -1;
-
-    // Only check the ground for water if there's NO bridge tile present.
-    if (!isBridgePresent && groundTile && groundTile.properties.water === "1") {
-        this.moveSpeed = this.defaultMoveSpeed * 1.5; // 50% slower
-        console.log("Moving on water, speed is now:", this.moveSpeed);
-    }
-
-    this.isMoving = true;
     
-    // Set sprite direction BEFORE the tween starts
-    this.updateSpriteDirection(direction);
 
+    // Water speed check
+    if (!isPushing) {
+        const bridgeTile = this.tilemap.getTileAt(targetGridX, targetGridY, true, 'Bridge');
+        const groundTile = this.tilemap.getTileAt(targetGridX, targetGridY, true, 'Ground');
+        const isBridgePresent = bridgeTile && bridgeTile.index !== -1;
+        if (!isBridgePresent && groundTile && groundTile.properties.water === "1") {
+            this.moveSpeed = this.defaultMoveSpeed * 1.5;
+        }
+    }
+
+    // Player movement tween
+    this.isMoving = true;
+    this.updateSpriteDirection(direction);
     const endWorldPos = this.gridToWorldPosition(targetGridX, targetGridY, true);
 
     this.scene.tweens.add({
-      targets: this.sprite,
-      x: endWorldPos.x,
-      y: endWorldPos.y,
-      duration: this.moveSpeed * 1.6,
-      ease: 'Linear',
-      onComplete: () => {
-        this.isMoving = false;
-        this.gridX = targetGridX;
-        this.gridY = targetGridY;
+        targets: this.sprite,
+        x: endWorldPos.x,
+        y: endWorldPos.y,
+        duration: this.moveSpeed * 1.6,
+        ease: 'Linear',
+        onComplete: () => {
+            this.isMoving = false;
+            this.gridX = targetGridX;
+            this.gridY = targetGridY;
 
-        // After a move is complete, tell the server
-        if (this.socket) {
-          this.socket.emit('playerMovement', { x: this.gridX, y: this.gridY, direction: direction });
+            if (this.socket) {
+                this.socket.emit('playerMovement', { x: this.gridX, y: this.gridY, direction: direction });
+            }
         }
-      }
     });
-  }
-
+}
   updateSpriteDirection(direction) {
     switch (direction) {
       case 'up-right':
