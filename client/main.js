@@ -92,6 +92,7 @@ class GameScene extends Phaser.Scene {
         super({ key: 'GameScene' });
         this.currentMap = 'map';
         this.spawnPos = { x: 14, y: 8 };
+        this.hasInitialized = false;
     }
     // This function runs when the scene is started or restarted
     init(data) {
@@ -179,28 +180,34 @@ class GameScene extends Phaser.Scene {
         this.setupSocketListeners();
 
         document.addEventListener('visibilitychange', () => {
-            if (!document.hidden && this.socket && this.moveableLayer) {
-                console.log('Tab became active, cleaning up and syncing...');
-                
-                // Kill ALL tweens to stop any in-progress animations
-                this.tweens.killAll();
-                
-                // Destroy any temporary tile sprites
-                this.children.list.forEach(child => {
-                    if (child.texture && child.texture.key && child.texture.key.startsWith('moving_tile_')) {
-                        child.destroy();
-                        this.textures.remove(child.texture.key);
-                    }
-                });
-                
-                // Clear ALL other players before requesting update
-                this.otherPlayers.clear(true, true); // destroy children and remove from group
-                
-                // Request fresh state
-                this.socket.emit('requestMoveableTilesState');
-                this.socket.emit('requestPlayersUpdate');
+    if (!document.hidden && this.socket && this.scene) {
+        console.log('Tab became active, cleaning up and syncing...');
+        
+        // Kill ALL tweens
+        this.tweens.killAll();
+        
+        // Destroy temporary tile sprites
+        this.children.list.forEach(child => {
+            if (child.texture && child.texture.key && child.texture.key.startsWith('moving_tile_')) {
+                child.destroy();
+                this.textures.remove(child.texture.key);
             }
         });
+        
+        // Clear other players
+        this.otherPlayers.clear(true, true);
+        
+        // Request fresh state for THIS map
+        this.socket.emit('requestMoveableTilesState');
+        
+        // Request players on current map
+        this.socket.emit('playerChangedMap', {
+            map: this.currentMap,
+            x: this.player ? this.player.gridX : this.spawnPos.x,
+            y: this.player ? this.player.gridY : this.spawnPos.y
+        });
+    }
+});
 
         // Keyboard input
         this.cursors = this.input.keyboard.createCursorKeys();
@@ -213,6 +220,13 @@ class GameScene extends Phaser.Scene {
         this.player.setTilemap(this.map);
         this.cameras.main.startFollow(this.player.sprite, true);
         this.cameras.main.setZoom(2.8);
+
+        //  Notify server of our current map immediately after player is created
+this.socket.emit('playerChangedMap', {
+    map: this.currentMap,
+    x: this.spawnPos.x,
+    y: this.spawnPos.y
+});
 
         // Set up trigger zones
         const triggerLayer = this.map.getObjectLayer('EllipseTrigger');
@@ -272,34 +286,51 @@ this.socket.on('moveableTileUpdated', (data) => {
     }
 });
 
-        // Now handle socket events
-        this.socket.on('currentPlayers', (players) => {
-            const selfId = this.socket.id;
-            
-            // Clear existing other players to prevent duplicates
-            this.otherPlayers.clear(true, true);
-            
-            // Request the current moveable tiles state
-            this.socket.emit('requestMoveableTilesState');
-            
-            // Notify server of our position if we teleported to a different map
-            if (this.currentMap !== 'map') {
-                this.socket.emit('playerTeleport', this.spawnPos);
-            }
+        this.socket.on('playerMapUpdate', (data) => {
+    // Remove player sprite if they changed maps
+    this.otherPlayers.getChildren().forEach((otherPlayer) => {
+        if (otherPlayer.playerId === data.playerId) {
+            otherPlayer.destroy();
+        }
+    });
+});
 
-            Object.keys(players).forEach((id) => {
-                if (id !== selfId) {
-                    this.addOtherPlayer(players[id]);
-                }
-            });
-        });
+// Modify the currentPlayers handler to request map-specific players
+this.socket.on('currentPlayers', (players) => {
+    const selfId = this.socket.id;
+    
+    // Clear existing other players to prevent duplicates
+    this.otherPlayers.clear(true, true);
+    
+    // Only request moveable tiles on initial connection, not on map change
+    if (!this.hasInitialized) {
+        this.hasInitialized = true;
+        this.socket.emit('requestMoveableTilesState');
+    }
+    
+    Object.keys(players).forEach((id) => {
+        if (id !== selfId) {
+            this.addOtherPlayer(players[id]);
+        }
+    });
+});
 
         this.socket.on('newPlayer', (playerInfo) => {
-            if (playerInfo.playerId === this.socket.id) {
-                return;
-            }
-            this.addOtherPlayer(playerInfo);
-        });
+    if (playerInfo.playerId === this.socket.id) {
+        return;
+    }
+    
+    // Check if player already exists to prevent duplicates
+    const existing = this.otherPlayers.getChildren().find(p => p.playerId === playerInfo.playerId);
+    if (existing) {
+        // Update position instead of creating new sprite
+        existing.x = this.player.gridToWorldPosition(playerInfo.x, playerInfo.y, true).x;
+        existing.y = this.player.gridToWorldPosition(playerInfo.x, playerInfo.y, true).y;
+        existing.setDepth(existing.y);
+    } else {
+        this.addOtherPlayer(playerInfo);
+    }
+});
 
         this.socket.on('playerDisconnected', (playerId) => {
             this.otherPlayers.getChildren().forEach((otherPlayer) => {
@@ -343,21 +374,19 @@ this.socket.on('moveableTileUpdated', (data) => {
     }
 
     changeMap(mapKey, spawnPos) {
-        // Prevent the teleport from triggering multiple times
-        if (this.isTeleporting) return;
-        this.isTeleporting = true;
+    if (this.isTeleporting) return;
+    this.isTeleporting = true;
 
-        // Fade the camera to black
-        this.cameras.main.fadeOut(500, 0, 0, 0);
+    // DON'T emit playerChangedMap here - wait until the new scene is ready
+    
+    this.cameras.main.fadeOut(500, 0, 0, 0);
 
-        this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
-            this.isTeleporting = false;
-            // Stop the UIScene before restarting GameScene
-            this.scene.stop('UIScene');
-            // Pass the new map AND the new spawn position to the restarted scenewd
-            this.scene.restart({ map: mapKey, spawnPos: spawnPos });
-        });
-    }
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+        this.isTeleporting = false;
+        this.scene.stop('UIScene');
+        this.scene.restart({ map: mapKey, spawnPos: spawnPos });
+    });
+}
     
     // Helper function to add other players
     addOtherPlayer(playerInfo) {
