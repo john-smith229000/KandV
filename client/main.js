@@ -115,6 +115,7 @@ class GameScene extends Phaser.Scene {
 
         // Sounds
         this.load.audio('meow_sound', '/sounds/meow.wav');
+        this.load.audio('water_sound', '/sounds/water.wav');
     }
 
     create() {

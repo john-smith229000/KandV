@@ -50,6 +50,7 @@ export class IsometricPlayer {
     this.scene = scene;
     this.socket = socket;
     this.tilemap = null; // Will be set from the scene
+    this.waterSound = null;
     
     // Grid position (in tile coordinates) - start on a visible tile
     this.gridX = startIsoX;
@@ -261,12 +262,18 @@ moveToGridPosition(targetGridX, targetGridY, direction) {
             case 'down-left': pushDeltaY = 1; pushDeltaX = (targetGridY % 2 === 1) ? 0 : -1; break;
         }
         
-        const pushToX = targetGridX + pushDeltaX;
+         const pushToX = targetGridX + pushDeltaX;
         const pushToY = targetGridY + pushDeltaY;
 
-        // Check if the destination is valid AND empty
+        // NEW: Check if the destination tile is water
+        const groundTileAtTarget = this.tilemap.getTileAt(pushToX, pushToY, true, 'Ground');
+        const bridgeTileAtTarget = this.tilemap.getTileAt(pushToX, pushToY, true, 'Bridge');
+        const isBridgePresent = bridgeTileAtTarget && bridgeTileAtTarget.index !== -1;
+        const isWater = !isBridgePresent && groundTileAtTarget && groundTileAtTarget.properties.water === "1";
+
+        // Check if the destination is valid, empty, AND not water
         const destinationTile = this.scene.moveableLayer.getTileAt(pushToX, pushToY, true);
-        if (this.isValidTile(pushToX, pushToY) && (!destinationTile || destinationTile.index === -1)) {
+        if (this.isValidTile(pushToX, pushToY) && (!destinationTile || destinationTile.index === -1) && !isWater) {
             const moveData = {
                 old: { x: targetGridX, y: targetGridY },
                 new: { x: pushToX, y: pushToY },
@@ -291,13 +298,43 @@ moveToGridPosition(targetGridX, targetGridY, direction) {
 
     
 
-    // Water speed check
+    // Water speed and sound check
     if (!isPushing) {
         const bridgeTile = this.tilemap.getTileAt(targetGridX, targetGridY, true, 'Bridge');
         const groundTile = this.tilemap.getTileAt(targetGridX, targetGridY, true, 'Ground');
         const isBridgePresent = bridgeTile && bridgeTile.index !== -1;
-        if (!isBridgePresent && groundTile && groundTile.properties.water === "1") {
-            this.moveSpeed = this.defaultMoveSpeed * 1.5;
+        const isWater = !isBridgePresent && groundTile && groundTile.properties.water === "1";
+
+        if (isWater) {
+            this.moveSpeed = this.defaultMoveSpeed * 2.0;
+            if (!this.waterSound || !this.waterSound.isPlaying) {
+                // If the sound object doesn't exist yet, create it.
+                if (!this.waterSound) {
+                    this.waterSound = this.scene.sound.add('water_sound', { loop: true });
+                }
+
+                // Start playing the sound.
+                this.waterSound.play();
+
+                // Get the total duration of the sound in seconds.
+                const duration = this.waterSound.duration;
+                
+                // If the duration is available, seek to a random point.
+                if (duration > 0) {
+                    const randomStart = Math.random() * duration;
+                    this.waterSound.seek = randomStart;
+                }
+            }
+        } else {
+            // Stop water sound if it is playing
+            if (this.waterSound && this.waterSound.isPlaying) {
+                this.waterSound.stop();
+            }
+        }
+    } else {
+        // Also stop the sound if the player is pushing an object
+        if (this.waterSound && this.waterSound.isPlaying) {
+            this.waterSound.stop();
         }
     }
 
