@@ -189,37 +189,40 @@ io.on('connection', (socket) => {
     socket.emit('currentPlayers', playersOnSameMap);
   });
 
+  socket.on('tileAnimationComplete', () => {
+    // Send the current state to all clients to ensure sync
+    io.emit('moveableTilesState', moveableTiles);
+});
+
   socket.on('moveableTileMoved', (data) => {
     if (!data || !data.old || !data.new || data.tileIndex === undefined) {
       console.error('Invalid moveableTileMoved data:', data);
       return;
     }
     
+   // Update server state immediately
     let originalTileId = null;
     for (const id in moveableTiles) {
-      const tile = moveableTiles[id];
-      if (tile.x === data.old.x && tile.y === data.old.y) {
-        originalTileId = id;
-        break;
-      }
+        const tile = moveableTiles[id];
+        if (tile.x === data.old.x && tile.y === data.old.y) {
+            originalTileId = id;
+            break;
+        }
     }
     
     if (!originalTileId) {
-      originalTileId = `${data.old.x},${data.old.y}`;
+        originalTileId = `${data.old.x},${data.old.y}`;
     }
     
     moveableTiles[originalTileId] = {
-      x: data.new.x,
-      y: data.new.y,
-      tileIndex: data.tileIndex
+        x: data.new.x,
+        y: data.new.y,
+        tileIndex: data.tileIndex
     };
     
+    // Only broadcast the animation trigger to others
     socket.broadcast.emit('moveableTileUpdated', data);
-    
-    setTimeout(() => {
-      io.emit('moveableTilesState', moveableTiles);
-    }, 400);
-  });
+});
 
   socket.on('playerTeleport', (newPosition) => {
     if (players[socket.id]) {

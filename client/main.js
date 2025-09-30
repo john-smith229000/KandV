@@ -265,49 +265,34 @@ console.log('Emitted playerChangedMap:', this.currentMap, this.spawnPos.x, this.
         }
 
       this.socket.on('moveableTilesState', (serverMoveableTiles) => {
-    console.log('Received moveable tiles from server:', Object.keys(serverMoveableTiles).length);
-    console.log('Server tiles data:', serverMoveableTiles);
-    
-    if (!this.moveableLayer) {
-        console.error('No moveable layer to place tiles!');
-        return;
-    }
+    if (!this.moveableLayer) return;
 
-    // Log before clearing
-    let tilesBeforeClear = 0;
-    this.moveableLayer.forEachTile(tile => {
-        if (tile && tile.index !== -1) {
-            tilesBeforeClear++;
-        }
-    });
-    console.log('Tiles before clearing:', tilesBeforeClear);
-
-    // Store current tile positions before clearing
-    const currentTiles = {};
-    this.moveableLayer.forEachTile(tile => {
-        if (tile && tile.index !== -1) {
-            currentTiles[`${tile.x},${tile.y}`] = tile.index;
-        }
-    });
-
-    // Clear all existing moveable tiles
+    // Don't update tiles that are currently animating
     this.moveableLayer.forEachTile(tile => {
         if (tile && tile.index !== -1) {
             this.moveableLayer.removeTileAt(tile.x, tile.y);
         }
     });
 
-    // Redraw them in their correct final positions from server state
-    let tilesPlaced = 0;
     for (const originalId in serverMoveableTiles) {
         const tileData = serverMoveableTiles[originalId];
         if (tileData && tileData.tileIndex !== undefined) {
-            this.moveableLayer.putTileAt(tileData.tileIndex, tileData.x, tileData.y);
-            tilesPlaced++;
-            console.log(`Placed tile ${tileData.tileIndex} at (${tileData.x}, ${tileData.y})`);
+            // Check if this position is being animated
+            let isAnimating = false;
+            if (this.animatingTiles) {
+                for (const key of this.animatingTiles) {
+                    if (key.endsWith(`${tileData.x},${tileData.y}`)) {
+                        isAnimating = true;
+                        break;
+                    }
+                }
+            }
+            
+            if (!isAnimating) {
+                this.moveableLayer.putTileAt(tileData.tileIndex, tileData.x, tileData.y);
+            }
         }
     }
-    console.log('Tiles placed from server:', tilesPlaced);
 });
 
 this.socket.on('moveableTileUpdated', (data) => {

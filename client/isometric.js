@@ -142,25 +142,27 @@ updatePosition() {
   animateTilePush(data) {
     const { old, new: newPos, tileIndex } = data;
 
-    // Tab visibility check
     if (document.hidden) {
-      if (this.scene.moveableLayer) {
-        this.scene.moveableLayer.removeTileAt(old.x, old.y);
-        this.scene.moveableLayer.putTileAt(tileIndex, newPos.x, newPos.y);
-      }
-      return;
+        if (this.scene.moveableLayer) {
+            this.scene.moveableLayer.removeTileAt(old.x, old.y);
+            this.scene.moveableLayer.putTileAt(tileIndex, newPos.x, newPos.y);
+        }
+        return;
     }
 
-    // Store the tile data BEFORE removing it
-    const tileToMove = this.scene.moveableLayer ? this.scene.moveableLayer.getTileAt(old.x, old.y) : null;
+    // Check if we're already animating this tile
+    const animKey = `${old.x},${old.y}->${newPos.x},${newPos.y}`;
+    if (this.scene.animatingTiles && this.scene.animatingTiles.has(animKey)) {
+        return; // Don't double-animate
+    }
     
-    if (!tileToMove || tileToMove.index === -1) {
-      console.warn('No tile found at position to animate:', old);
-      return;
-    }
+    // Track that we're animating this tile
+    if (!this.scene.animatingTiles) this.scene.animatingTiles = new Set();
+    this.scene.animatingTiles.add(animKey);
 
-    // Remove the tile from the old position
+    // Remove tile from BOTH positions to prevent ghosts
     this.scene.moveableLayer.removeTileAt(old.x, old.y);
+    this.scene.moveableLayer.removeTileAt(newPos.x, newPos.y);
 
     // Animate the tile being pushed
     const tileWorldStart = this.gridToWorldPosition(old.x, old.y, true);
@@ -201,23 +203,34 @@ updatePosition() {
     tempTileSprite.setDepth(tileWorldStart.y);
 
     this.scene.tweens.add({
-      targets: tempTileSprite,
-      x: tileWorldEnd.x,
-      y: tileWorldEnd.y,
-      onUpdate: () => {
-        tempTileSprite.setDepth(tempTileSprite.y);
-      },
-      duration: this.defaultMoveSpeed * 2 * 1.6,
-      ease: 'Linear',
-      onComplete: () => {
-        if (this.scene.moveableLayer) {
-          this.scene.moveableLayer.putTileAt(tileIndex, newPos.x, newPos.y);
-        }
-        tempTileSprite.destroy();
-        this.scene.textures.remove(uniqueKey);
-      }
+        targets: tempTileSprite,
+        x: tileWorldEnd.x,
+        y: tileWorldEnd.y,
+        onUpdate: () => {
+            tempTileSprite.setDepth(tempTileSprite.y);
+        },
+        duration: this.defaultMoveSpeed * 2 * 1.6,
+        ease: 'Linear',
+       onComplete: () => {
+    // Place the tile at its final position
+    if (this.scene.moveableLayer) {
+        this.scene.moveableLayer.putTileAt(tileIndex, newPos.x, newPos.y);
+    }
+    
+    // Clean up
+    tempTileSprite.destroy();
+    this.scene.textures.remove(uniqueKey);
+    
+    // Remove from animating set
+    this.scene.animatingTiles.delete(animKey);
+    
+    // Tell server to sync the final state now that animation is done
+    if (this.socket) {
+        this.socket.emit('tileAnimationComplete');
+    }
+}
     });
-  }
+}
 
   moveToGridPosition(targetGridX, targetGridY, direction) {
     console.log('moveToGridPosition called:');
