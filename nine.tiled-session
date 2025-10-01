@@ -5,12 +5,12 @@
     },
     "activeFile": "client/public/images/maps/MOVE.json",
     "expandedProjectPaths": [
-        "client/public/images/tiles",
         "client",
-        "client/public",
-        ".",
+        "client/public/images/tiles",
         "client/public/images",
-        "client/public/images/maps"
+        "client/public",
+        "client/public/images/maps",
+        "."
     ],
     "fileStates": {
         "": {
@@ -23,20 +23,37 @@
             "expandedGroupLayers": [
                 9
             ],
-            "scale": 2,
+            "expandedObjectLayers": [
+                16
+            ],
+            "scale": 3,
             "selectedLayer": 0,
             "viewCenter": {
-                "x": 504.25,
-                "y": 123.75
+                "x": 513.6666666666666,
+                "y": 193.83333333333331
             }
+        },
+        "client/public/images/maps/MOVE.json#spritesheet": {
+            "scaleInDock": 1
         },
         "client/public/images/maps/fixfoliage.json": {
             "scale": 0.75,
             "selectedLayer": 0,
             "viewCenter": {
-                "x": 488.66666666666663,
-                "y": 247.33333333333331
+                "x": 404,
+                "y": 263.33333333333326
             }
+        },
+        "client/public/images/maps/frmt.json": {
+            "scale": 1,
+            "selectedLayer": 0,
+            "viewCenter": {
+                "x": 404,
+                "y": 166.5
+            }
+        },
+        "client/public/images/maps/frmt.json#spritesheet": {
+            "scaleInDock": 1
         },
         "client/public/images/maps/heartmap.json": {
             "scale": 0.75,
@@ -87,6 +104,7 @@
     },
     "last.exportedFilePath": "C:/Users/vince/Desktop/K+V/client/public/images/maps",
     "last.imagePath": "C:/Users/vince/Desktop/K+V/client/public/images/tiles/isometric tileset",
+    "lastUsedTilesetExportFilter": "All Files (*)",
     "map.height": 50,
     "map.lastUsedExportFilter": "JSON map files (*.tmj *.json)",
     "map.lastUsedFormat": "json",
@@ -94,11 +112,13 @@
     "openFiles": [
         "client/public/images/tiles/spritesheet.tsx",
         "client/public/images/maps/MOVE.json",
-        "client/public/images/maps/fixfoliage.json"
+        "client/public/images/maps/fixfoliage.json",
+        "client/public/images/maps/frmt.json"
     ],
     "project": "nine.tiled-project",
     "recentFiles": [
         "client/public/images/tiles/spritesheet.tsx",
+        "client/public/images/maps/frmt.json",
         "client/public/images/maps/fixfoliage.json",
         "client/public/images/maps/MOVE.json",
         "client/public/images/maps/offset.tmj",

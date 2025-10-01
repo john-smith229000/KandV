@@ -104,9 +104,9 @@ class GameScene extends Phaser.Scene {
 
     preload() {
         // Maps
-        this.load.image('tiles', '/images/tiles/isometric tileset/spritesheet.png');
-        //this.load.tilemapTiledJSON('map', '/images/maps/testmap2.json');
-        this.load.tilemapTiledJSON('map', '/images/maps/testmap3.json');
+        const timestamp = new Date().getTime();
+        this.load.image('tiles', `/images/tiles/isometric tileset/spritesheet.png?v=${timestamp}`);
+        this.load.tilemapTiledJSON('map', '/images/maps/frmt.json');
         this.load.tilemapTiledJSON('heartmap', '/images/maps/heartmap.json');
 
         // Load the new character sprites

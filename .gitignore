@@ -30,4 +30,4 @@ dist-ssr
 *.sw?
 
 cloudflared.exe
-public/
+sounds/
