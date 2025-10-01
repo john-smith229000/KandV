@@ -1,461 +1,65 @@
 import './style.css';
 import Phaser from 'phaser';
-import { io } from 'socket.io-client';
-import { IsometricPlayer } from './isometric.js';
 import { DiscordSDK } from '@discord/embedded-app-sdk';
-import { Joystick } from './joystick.js';
 import VirtualJoystickPlugin from 'phaser3-rex-plugins/dist/rexvirtualjoystickplugin.min.js';
 
-const DEPTHS = {
-    GROUND: 0,
-    BRIDGE: 5,
-    FOLIAGE: 10,
-    MOVEABLE: 20,
-};
+// Import the new scenes
+import { BootScene } from './src/scenes/BootScene.js';
+import { MenuScene } from './src/scenes/MenuScene.js';
+import { LevelScene } from './src/scenes/LevelScene.js';
+import { UIScene } from './src/scenes/UIScene.js';
 
-// Discord variables and setup function (unchanged)
 const urlParams = new URLSearchParams(window.location.search);
 const isDiscordActivity = urlParams.has('frame_id');
 let discordSdk = null;
-let auth = null;
-async function setupDiscordSdk() { /* ... same as before ... */ }
 
-// --- NEW UI SCENE ---
-// This scene's only job is to display text on top of the game.
-class UIScene extends Phaser.Scene {
-    constructor() {
-        super({ key: 'UIScene', active: true });
+async function setupDiscordSdk(game) {
+    if (!isDiscordActivity) return;
+
+    discordSdk = new DiscordSDK(urlParams.get('instance_id'));
+    await discordSdk.ready();
+
+    const { code } = await discordSdk.commands.authorize({
+        client_id: import.meta.env.VITE_DISCORD_CLIENT_ID,
+        response_type: 'code',
+        state: '',
+        prompt: 'none',
+        scope: ['identify', 'guilds'],
+    });
+
+    const response = await fetch('/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+    });
+
+    const { access_token } = await response.json();
+
+    const auth = await discordSdk.commands.authenticate({
+        access_token,
+    });
+
+    if (auth == null) {
+        throw new Error('Authenticate command failed');
     }
 
-    create() {
-        const isMobile = window.matchMedia("(pointer: coarse)").matches;
-
-        // Add the mode text
-        const modeTextContent = isDiscordActivity ? '🎮 Discord Mode' : '💻 Local Development';
-        this.add.text(10, 10, modeTextContent, {
-            fontSize: '14px',
-            fill: '#00ff00'
-        });
-
-        // Add the instruction text
-        const instructionTextContent = isMobile ? 'Use the joystick to move' : 'Use WASD or arrows to move';
-        this.add.text(10, 35, instructionTextContent, {
-            fontSize: '16px',
-            fill: '#ffffff'
-        });
-
-        // --- Sound and Input Logic ---
-        if (isMobile) {
-            // --- 1. Create the Joystick in the UI Scene ---
-            const { width, height } = this.cameras.main;
-            const joystick = new Joystick(this, width - 100, height - 100);
-            joystick.setVisible(true);
-
-            // --- 2. Listen for joystick updates in the UI ---
-            this.joystickCursors = joystick.cursorKeys;
-
-            // Meow button logic is unchanged
-            const meowButton = this.add.circle(1240, 40, 25, 0xcccccc, 0.8).setInteractive();
-            // Send a 'meow' event to the server when pressed
-            meowButton.on('pointerdown', () => {
-                const gameScene = this.scene.get('GameScene');
-                if (gameScene && gameScene.socket) {
-                gameScene.socket.emit('meow');
-                }
-            });
-            } else {
-            // --- Updated Desktop 'M' Key ---
-            // Send a 'meow' event to the server when 'M' is pressed
-            this.input.keyboard.addKey('M').on('down', () => {
-                const gameScene = this.scene.get('GameScene');
-                if (gameScene && gameScene.socket) {
-                gameScene.socket.emit('meow');
-                }
-            });
-    }
-    }
-
-    update() {
-        // --- 3. Send joystick data to the Game Scene every frame ---
-        if (this.joystickCursors) {
-            // Use the global event bus to send the data
-            this.game.events.emit('joystick-update', this.joystickCursors);
-        }
-    }
+    // Store the session and user IDs in the game registry
+    game.registry.set('sessionID', discordSdk.instanceId);
+    game.registry.set('userID', auth.user.id);
 }
 
-
-// --- GAME SCENE (Updated) ---
-// Now focused only on the game world, with all text code removed.
-class GameScene extends Phaser.Scene {
-    constructor() {
-        super({ key: 'GameScene' });
-        this.currentMap = 'map';
-        this.spawnPos = { x: 13, y: 11 };
-        this.hasInitialized = false;
-    }
-    // This function runs when the scene is started or restarted
-    init(data) {
-        if (data.map) {
-            this.currentMap = data.map;
-        }
-        this.spawnPos = data.spawnPos || { x: 13, y: 11 };
-    }
-
-    preload() {
-        // Maps
-        const timestamp = new Date().getTime();
-        this.load.image('tiles', `/images/tiles/isometric tileset/spritesheet.png?v=${timestamp}`);
-        this.load.tilemapTiledJSON('map', '/images/maps/frmt.json');
-        this.load.tilemapTiledJSON('heartmap', '/images/maps/heartmap.json');
-
-        // Load the new character sprites
-        this.load.image('cat1', '/images/actors/cat1.png');
-        this.load.image('cat2', '/images/actors/cat2.png');
-
-        // Sounds
-        this.load.audio('meow_sound', '/sounds/meow.wav');
-        this.load.audio('water_sound', '/sounds/water.wav');
-    }
-
-    create() {
-        // Relaunch UIScene every time
-        if (!this.scene.isActive('UIScene')) {
-            this.scene.launch('UIScene');
-        }
-        
-        // Store socket in game registry so it persists across scene restarts
-        if (!this.game.registry.get('socket')) {
-            const socketURL = window.location.protocol === 'https' ? window.location.origin : 'http://localhost:3001';
-            const socket = io(socketURL);
-            this.game.registry.set('socket', socket);
-            this.socket = socket;
-        } else {
-            this.socket = this.game.registry.get('socket');
-            // Clean up old listeners before setting up new ones
-            this.socket.removeAllListeners();
-        }
-
-       // Create the map BEFORE setting up socket listeners
-        this.map = this.make.tilemap({ key: this.currentMap });
-        const tileset = this.map.addTilesetImage('spritesheet', 'tiles');
-        
-        // Set depths for each layer to control rendering order
-        this.map.createLayer('Ground', tileset, 0, 0).setDepth(DEPTHS.GROUND).setCullPadding(4, 4); 
-
-       if (this.map.getLayer('Moveable')) {
-    this.moveableLayer = this.map.createLayer('Moveable', tileset, 0, 0).setDepth(DEPTHS.MOVEABLE).setCullPadding(4, 4); 
-    
-    // Add debugging
-    let tileCount = 0;
-    this.moveableLayer.forEachTile(tile => {
-        if (tile && tile.index !== -1) {
-            tileCount++;
-        }
-    });
-    console.log('Moveable layer created with', tileCount, 'tiles');
-    
-    // CRITICAL: Send initial moveable tiles to server
-    const initialMoveableTiles = {};
-    this.moveableLayer.forEachTile(tile => {
-        if (tile && tile.index !== -1) {
-            const tileId = `${tile.x},${tile.y}`;
-            initialMoveableTiles[tileId] = {
-                x: tile.x,
-                y: tile.y,
-                tileIndex: tile.index
-            };
-        }
-    });
-    
-    console.log('Sending initial tiles to server:', Object.keys(initialMoveableTiles).length);
-    
-    // Only emit if we have tiles and we're the first player
-    if (Object.keys(initialMoveableTiles).length > 0) {
-        this.socket.emit('initializeMoveableTiles', initialMoveableTiles);
-    }
-        } else {
-            this.moveableLayer = null;
-        }
-        if (this.map.getLayer('Bridge')) {
-            this.map.createLayer('Bridge', tileset, 0, 0).setDepth(DEPTHS.BRIDGE).setCullPadding(4, 4);
-        }
-        if (this.map.getLayer('Foliage')) {
-            // Foliage should be on top
-            this.map.createLayer('Foliage', tileset, 0, 0).setDepth(DEPTHS.FOLIAGE).setCullPadding(4, 4);
-        }
-        this.groundLayer = this.map.getLayer('Ground').tilemapLayer;
-        this.otherPlayers = this.add.group();
-        this.moveableTiles = this.add.group();
-
-        // NOW set up socket listeners
-        this.setupSocketListeners();
-
-        document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && this.socket && this.scene) {
-        console.log('Tab became active, cleaning up and syncing...');
-        
-        // Kill ALL tweens
-        this.tweens.killAll();
-        
-        // Destroy temporary tile sprites
-        this.children.list.forEach(child => {
-            if (child.texture && child.texture.key && child.texture.key.startsWith('moving_tile_')) {
-                child.destroy();
-                this.textures.remove(child.texture.key);
-            }
-        });
-        
-        // Clear other players
-        this.otherPlayers.clear(true, true);
-        
-        // Request fresh state for THIS map
-        this.socket.emit('requestMoveableTilesState');
-        
-        // Request players on current map
-        this.socket.emit('playerChangedMap', {
-            map: this.currentMap,
-            x: this.player ? this.player.gridX : this.spawnPos.x,
-            y: this.player ? this.player.gridY : this.spawnPos.y
-
-        });
-    }
-});
-
-        // Keyboard input
-        this.cursors = this.input.keyboard.createCursorKeys();
-        this.wasd = this.input.keyboard.addKeys('W,S,A,D');
-    }
-
-    setupSocketListeners() {
-        // Create the player FIRST, before any socket events
-        this.player = new IsometricPlayer(this, this.spawnPos.x, this.spawnPos.y, this.socket);
-        console.log('Player created at client grid position:', this.player.gridX, this.player.gridY);
-console.log('Player sprite world position:', this.player.sprite.x, this.player.sprite.y);
-        this.player.setTilemap(this.map);
-        this.cameras.main.startFollow(this.player.sprite, true);
-        this.cameras.main.setZoom(2.8);
-
-        //  Notify server of our current map immediately after player is created
-this.socket.emit('playerChangedMap', {
-    map: this.currentMap,
-    x: this.spawnPos.x,
-    y: this.spawnPos.y
-});
-console.log('Emitted playerChangedMap:', this.currentMap, this.spawnPos.x, this.spawnPos.y);
-
-        // Set up trigger zones
-        const triggerLayer = this.map.getObjectLayer('EllipseTrigger');
-        if (triggerLayer && this.player) {
-            triggerLayer.objects.forEach(obj => {
-                if (obj.name === 'flowecircle' && obj.ellipse) {
-                    const triggerZone = this.add.ellipse(obj.x + obj.width / 2, obj.y + obj.height / 2, obj.width, obj.height);
-                    this.physics.add.existing(triggerZone, true);
-                    
-                    // Make the physics body circular (using average of width/height as radius)
-                    const radius = Math.min(obj.width, obj.height) / 2;
-                    triggerZone.body.setCircle(radius);
-                    
-                    this.physics.add.overlap(this.player.sprite, triggerZone, () => {
-                        console.log('Player entered the flower circle!');
-                        this.changeMap('heartmap', { x: 14, y: 22 });
-                    });
-                }
-            });
-        }
-
-      this.socket.on('moveableTilesState', (serverMoveableTiles) => {
-    if (!this.moveableLayer) return;
-
-    // Don't update tiles that are currently animating
-    this.moveableLayer.forEachTile(tile => {
-        if (tile && tile.index !== -1) {
-            this.moveableLayer.removeTileAt(tile.x, tile.y);
-        }
-    });
-
-    for (const originalId in serverMoveableTiles) {
-        const tileData = serverMoveableTiles[originalId];
-        if (tileData && tileData.tileIndex !== undefined) {
-            // Check if this position is being animated
-            let isAnimating = false;
-            if (this.animatingTiles) {
-                for (const key of this.animatingTiles) {
-                    if (key.endsWith(`${tileData.x},${tileData.y}`)) {
-                        isAnimating = true;
-                        break;
-                    }
-                }
-            }
-            
-            if (!isAnimating) {
-                this.moveableLayer.putTileAt(tileData.tileIndex, tileData.x, tileData.y);
-            }
-        }
-    }
-});
-
-this.socket.on('moveableTileUpdated', (data) => {
-    if (this.player && this.moveableLayer) {
-        // Ensure the tile exists at the old position before animating
-        const existingTile = this.moveableLayer.getTileAt(data.old.x, data.old.y, true);
-        
-        if (!existingTile || existingTile.index === -1) {
-            // If no tile at old position, just place it at new position
-            console.warn('Tile not found at old position, placing directly at new position');
-            this.moveableLayer.putTileAt(data.tileIndex, data.new.x, data.new.y);
-        } else {
-            // Animate the tile movement
-            this.player.animateTilePush(data);
-        }
-    }
-});
-
-        this.socket.on('playerMapUpdate', (data) => {
-    // Remove player sprite if they changed maps
-    this.otherPlayers.getChildren().forEach((otherPlayer) => {
-        if (otherPlayer.playerId === data.playerId) {
-            otherPlayer.destroy();
-        }
-    });
-});
-
-// Modify the currentPlayers handler to request map-specific players
-this.socket.on('currentPlayers', (players) => {
-    const selfId = this.socket.id;
-    
-    // Clear existing other players to prevent duplicates
-    this.otherPlayers.clear(true, true);
-    
-    // Only request moveable tiles on initial connection, not on map change
-    if (!this.hasInitialized) {
-        this.hasInitialized = true;
-        this.socket.emit('requestMoveableTilesState');
-    }
-    
-    Object.keys(players).forEach((id) => {
-        if (id !== selfId) {
-            this.addOtherPlayer(players[id]);
-        }
-    });
-});
-
-        this.socket.on('newPlayer', (playerInfo) => {
-    if (playerInfo.playerId === this.socket.id) {
-        return;
-    }
-    
-    // Check if player already exists to prevent duplicates
-    const existing = this.otherPlayers.getChildren().find(p => p.playerId === playerInfo.playerId);
-    if (existing) {
-        // Update position instead of creating new sprite
-        existing.x = this.player.gridToWorldPosition(playerInfo.x, playerInfo.y, true).x;
-        existing.y = this.player.gridToWorldPosition(playerInfo.x, playerInfo.y, true).y;
-        existing.setDepth(existing.y);
-    } else {
-        this.addOtherPlayer(playerInfo);
-    }
-});
-
-        this.socket.on('playerDisconnected', (playerId) => {
-            this.otherPlayers.getChildren().forEach((otherPlayer) => {
-                if (playerId === otherPlayer.playerId) {
-                    otherPlayer.destroy();
-                }
-            });
-        });
-
-       this.socket.on('playerMoved', (playerInfo) => {
-            this.otherPlayers.getChildren().forEach((otherPlayer) => {
-                if (playerInfo.playerId === otherPlayer.playerId) {
-                    this.tweens.add({
-                        targets: otherPlayer,
-                        x: this.player.gridToWorldPosition(playerInfo.x, playerInfo.y, true).x,
-                        y: this.player.gridToWorldPosition(playerInfo.x, playerInfo.y, true).y,
-                        duration: this.player.moveSpeed * 1.6,
-                        ease: 'Linear',
-                        // Add an onUpdate callback to adjust depth during movement
-                        onUpdate: () => {
-                            otherPlayer.setDepth(otherPlayer.y);
-                        }
-                    });
-                    this.player.updateSpriteDirection.call({ sprite: otherPlayer }, playerInfo.direction);
-                }
-            });
-        });
-
-        this.socket.on('meow', (playerId) => {
-        this.sound.play('meow_sound');
-        });
-    }
-
-
-    shutdown() {
-        console.log("Scene shutting down, removing listeners...");
-        // This removes all listeners from the socket, preventing duplicates
-        if (this.socket) {
-            this.socket.removeAllListeners();
-        }
-    }
-
-    changeMap(mapKey, spawnPos) {
-    if (this.isTeleporting) return;
-    this.isTeleporting = true;
-
-    // DON'T emit playerChangedMap here - wait until the new scene is ready
-    
-    this.cameras.main.fadeOut(500, 0, 0, 0);
-
-    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
-        this.isTeleporting = false;
-        this.scene.stop('UIScene');
-        this.scene.restart({ map: mapKey, spawnPos: spawnPos });
-    });
-}
-    
-    // Helper function to add other players
-    addOtherPlayer(playerInfo) {
-        if (!this.player) return;
-        
-        // Check if player already exists to prevent duplicates
-        const existingPlayer = this.otherPlayers.getChildren().find(p => p.playerId === playerInfo.playerId);
-        if (existingPlayer) {
-            console.warn('Player already exists, skipping duplicate:', playerInfo.playerId);
-            return;
-        }
-
-        const worldPos = this.player.gridToWorldPosition(playerInfo.x, playerInfo.y, true);
-        const otherPlayer = this.add.sprite(worldPos.x, worldPos.y, 'cat1').setScale(0.3).setOrigin(0.35, 0.75);
-        
-        otherPlayer.setDepth(worldPos.y);
-        otherPlayer.playerId = playerInfo.playerId;
-        this.otherPlayers.add(otherPlayer);
-    }
-
-    update(time, delta) {
-        // The main update loop is now simpler
-        if (this.player) {
-            this.player.handleInput(this.cursors, this.wasd);
-            // We no longer call the joystick handler here
-        }
-    }
-}
-
-// --- CONFIG (Updated) ---
-// Now includes both scenes.
 const config = {
     type: Phaser.AUTO,
     width: 1280,
     height: 720,
     parent: 'game',
     backgroundColor: '#2c3e50',
-    // The GameScene will be started first, and the UIScene will be drawn on top of it.
-    scene: [GameScene, UIScene],
+    scene: [BootScene, MenuScene, LevelScene, UIScene],
     physics: {
         default: 'arcade',
         arcade: {
-            gravity: { y: 0 }, // We don't need gravity for a top-down game
-            debug: false // Set to true to see physics bodies
+            gravity: { y: 0 },
+            debug: false
         }
     },
     plugins: {
@@ -476,16 +80,16 @@ const config = {
     }
 };
 
-// Start the application (unchanged)
 async function startApp() {
+    const game = new Phaser.Game(config);
+
     try {
-        await setupDiscordSdk();
+        await setupDiscordSdk(game);
     } catch (error) {
         if (isDiscordActivity) {
             console.error('Discord SDK error:', error);
         }
     }
-    const game = new Phaser.Game(config);
 }
 
 startApp();

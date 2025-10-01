@@ -5,31 +5,38 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
+import { Low } from 'lowdb';
+import { JSONFile } from 'lowdb/node';
 
 dotenv.config({ path: "../.env" });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Database setup
+const file = path.join(__dirname, 'db.json');
+const adapter = new JSONFile(file);
+const db = new Low(adapter);
+
+// Set default data if the database is empty
+await db.read();
+db.data ||= { sessions: {} };
+await db.write();
+
 const app = express();
 const server = createServer(app);
-
-// This 'cors' block is the critical fix
 const io = new Server(server, {
   cors: {
-    origin: "*", // Allows connections from any origin
+    origin: "*", 
     methods: ["GET", "POST"]
   },
 });
 
 const port = 3001;
-const players = {};
-const moveableTiles = {};
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../client/dist')));
 
-// Your Express routes and middleware remain here
 app.use((req, res, next) => {
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
   res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
@@ -52,191 +59,103 @@ app.post("/api/token", async (req, res) => {
   });
 
   const { access_token } = await response.json();
-  res.send({access_token});
+  res.send({ access_token });
 });
 
 // --- Multiplayer Logic ---
 io.on('connection', (socket) => {
   console.log(`🔌 Player connected: ${socket.id}`);
 
-  // DON'T initialize the player here - wait for them to tell us where they are
-  // Remove this block:
-  // players[socket.id] = {
-  //   x: 13, y: 11, direction: 'down-right', playerId: socket.id,
-  //   currentMap: 'map'
-  // };
+  socket.on('playerReady', async ({ sessionID, userID }) => {
+    if (!sessionID) return;
 
-  // Just send empty players initially since they haven't told us their position yet
-  socket.emit('currentPlayers', {});
-  
-  // Only send moveable tiles state
-  socket.emit('moveableTilesState', moveableTiles);
-  
-  // Remove the loop that notifies others - wait until playerChangedMap
+    socket.join(sessionID);
+    socket.sessionID = sessionID;
+    socket.userID = userID;
 
-  // Initialize moveable tiles handlers
-  socket.on('initializeMoveableTiles', (tiles) => {
-    if (Object.keys(moveableTiles).length === 0) {
-      console.log('Initializing moveable tiles from first player');
-      Object.assign(moveableTiles, tiles);
+    await db.read();
+    let session = db.data.sessions[sessionID];
+
+    if (!session) {
+      // Create a new session if one doesn't exist
+      session = {
+        players: {},
+        moveableTiles: {},
+        currentMap: 'map',
+        spawnPos: { x: 13, y: 11 },
+        storyFlags: {},
+      };
+      db.data.sessions[sessionID] = session;
     }
-    socket.emit('moveableTilesState', moveableTiles);
+
+    session.players[socket.id] = {
+      playerId: socket.id,
+      userId: userID,
+      x: session.spawnPos.x,
+      y: session.spawnPos.y,
+      direction: 'down-right',
+      currentMap: session.currentMap,
+    };
+
+    await db.write();
+
+    socket.emit('sessionLoad', session);
+    socket.to(sessionID).emit('newPlayer', session.players[socket.id]);
   });
 
-  socket.on('requestMoveableTilesState', () => {
-    socket.emit('moveableTilesState', moveableTiles);
-  });
-  
-  socket.emit('moveableTilesState', moveableTiles);
-  
-  // Notify others on the SAME MAP about the new player
-  for (const id in players) {
-    if (id !== socket.id && players[id].currentMap === 'map') {
-      io.to(id).emit('newPlayer', players[socket.id]);
-    }
-  }
-  // Listen for the 'meow' event from a client
-  socket.on('meow', () => {
-    io.emit('meow', socket.id);
+  socket.on('saveSessionState', async (sessionData) => {
+    const { sessionID } = socket;
+    if (!sessionID || !db.data.sessions[sessionID]) return;
+
+    db.data.sessions[sessionID] = {
+      ...db.data.sessions[sessionID],
+      ...sessionData,
+    };
+    await db.write();
   });
 
   socket.on('playerMovement', (movementData) => {
-    if (players[socket.id]) {
-      players[socket.id].x = movementData.x;
-      players[socket.id].y = movementData.y;
-      players[socket.id].direction = movementData.direction;
-      
-      // Only broadcast to players on the same map
-      for (const id in players) {
-        if (id !== socket.id && players[id].currentMap === players[socket.id].currentMap) {
-          io.to(id).emit('playerMoved', players[socket.id]);
-        }
-      }
-    }
+    const { sessionID } = socket;
+    if (!sessionID || !db.data.sessions[sessionID] || !db.data.sessions[sessionID].players[socket.id]) return;
+
+    const player = db.data.sessions[sessionID].players[socket.id];
+    player.x = movementData.x;
+    player.y = movementData.y;
+    player.direction = movementData.direction;
+
+    socket.to(sessionID).emit('playerMoved', player);
   });
-
-  socket.on('playerChangedMap', (data) => {
-    // Initialize player if they don't exist (first connection)
-    if (!players[socket.id]) {
-        players[socket.id] = {
-            x: data.x,
-            y: data.y,
-            direction: 'down-right',
-            playerId: socket.id,
-            currentMap: data.map
-        };
-        
-        // Notify others on the same map about the new player
-        for (const id in players) {
-            if (id !== socket.id && players[id].currentMap === data.map) {
-                io.to(id).emit('newPlayer', players[socket.id]);
-            }
-        }
-    } else {
-        // Existing logic for map changes
-        const oldMap = players[socket.id].currentMap;
-        
-        // Update player data
-        players[socket.id].currentMap = data.map;
-        players[socket.id].x = data.x;
-        players[socket.id].y = data.y;
-        
-        // Remove from old map viewers
-        for (const id in players) {
-            if (id !== socket.id && players[id].currentMap === oldMap) {
-                io.to(id).emit('playerDisconnected', socket.id);
-            }
-        }
-    }
-    
-    // Send players on the same map
-    const playersOnSameMap = {};
-    for (const id in players) {
-        if (id !== socket.id && players[id].currentMap === data.map) {
-            playersOnSameMap[id] = players[id];
-        }
-    }
-    socket.emit('currentPlayers', playersOnSameMap);
-    
-    // Notify others on new map (if it's a map change)
-    if (players[socket.id]) {
-        for (const id in players) {
-            if (id !== socket.id && players[id].currentMap === data.map) {
-                io.to(id).emit('newPlayer', players[socket.id]);
-            }
-        }
-    }
-});
-
-  socket.on('requestPlayersOnMap', (mapName) => {
-    const playersOnMap = {};
-    for (const id in players) {
-      if (id !== socket.id && players[id].currentMap === mapName) {
-        playersOnMap[id] = players[id];
-      }
-    }
-    socket.emit('currentPlayers', playersOnMap);
-  });
-
-  socket.on('requestPlayersUpdate', () => {
-    const requesterMap = players[socket.id]?.currentMap || 'map';
-    const playersOnSameMap = {};
-    for (const id in players) {
-      if (id !== socket.id && players[id].currentMap === requesterMap) {
-        playersOnSameMap[id] = players[id];
-      }
-    }
-    socket.emit('currentPlayers', playersOnSameMap);
-  });
-
-  socket.on('tileAnimationComplete', () => {
-    // Send the current state to all clients to ensure sync
-    io.emit('moveableTilesState', moveableTiles);
-});
 
   socket.on('moveableTileMoved', (data) => {
-    if (!data || !data.old || !data.new || data.tileIndex === undefined) {
-      console.error('Invalid moveableTileMoved data:', data);
-      return;
-    }
-    
-   // Update server state immediately
-    let originalTileId = null;
-    for (const id in moveableTiles) {
-        const tile = moveableTiles[id];
-        if (tile.x === data.old.x && tile.y === data.old.y) {
-            originalTileId = id;
-            break;
-        }
-    }
-    
-    if (!originalTileId) {
-        originalTileId = `${data.old.x},${data.old.y}`;
-    }
-    
-    moveableTiles[originalTileId] = {
-        x: data.new.x,
-        y: data.new.y,
-        tileIndex: data.tileIndex
-    };
-    
-    // Only broadcast the animation trigger to others
-    socket.broadcast.emit('moveableTileUpdated', data);
-});
+    const { sessionID } = socket;
+    if (!sessionID || !db.data.sessions[sessionID]) return;
 
-  socket.on('playerTeleport', (newPosition) => {
-    if (players[socket.id]) {
-      players[socket.id].x = newPosition.x;
-      players[socket.id].y = newPosition.y;
-      
-      socket.broadcast.emit('playerMoved', players[socket.id]);
+    const { old, new: newPos, tileIndex } = data;
+    const session = db.data.sessions[sessionID];
+
+    let tileId = null;
+    for (const id in session.moveableTiles) {
+      if (session.moveableTiles[id].x === old.x && session.moveableTiles[id].y === old.y) {
+        tileId = id;
+        break;
+      }
+    }
+
+    if (tileId) {
+      session.moveableTiles[tileId] = { x: newPos.x, y: newPos.y, tileIndex };
+      socket.to(sessionID).emit('moveableTileUpdated', data);
     }
   });
 
   socket.on('disconnect', () => {
     console.log(`🔌 Player disconnected: ${socket.id}`);
-    delete players[socket.id];
-    io.emit('playerDisconnected', socket.id);
+    const { sessionID } = socket;
+    if (!sessionID || !db.data.sessions[sessionID]) return;
+
+    delete db.data.sessions[sessionID].players[socket.id];
+    io.to(sessionID).emit('playerDisconnected', socket.id);
+
+    db.write();
   });
 });
 
