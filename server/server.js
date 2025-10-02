@@ -55,11 +55,9 @@ app.post("/api/token", async (req, res) => {
 
 // --- Multiplayer Logic ---
 io.on('connection', (socket) => {
-  console.log(`🔌 Player connected: ${socket.id}`);
+  console.log(`Player connected: ${socket.id}`);
 
   socket.on('playerChangedMap', (data) => {
-    console.log(`📍 [${socket.id}] playerChangedMap:`, data);
-    
     // Initialize player if they don't exist
     if (!players[socket.id]) {
         players[socket.id] = {
@@ -69,9 +67,7 @@ io.on('connection', (socket) => {
             playerId: socket.id,
             currentMap: data.map
         };
-        console.log(`👤 [${socket.id}] New player created`);
     } else {
-        // Update existing player
         const oldMap = players[socket.id].currentMap;
         players[socket.id].currentMap = data.map;
         players[socket.id].x = data.x;
@@ -85,7 +81,11 @@ io.on('connection', (socket) => {
                 }
             }
         }
-        console.log(`👤 [${socket.id}] Player updated, map: ${data.map}`);
+    }
+    
+    // Initialize moveableTiles for this map if needed
+    if (!moveableTiles[data.map]) {
+      moveableTiles[data.map] = {};
     }
     
     // Send players on the same map
@@ -96,13 +96,26 @@ io.on('connection', (socket) => {
         }
     }
     socket.emit('currentPlayers', playersOnSameMap);
-    console.log(`📤 [${socket.id}] Sent ${Object.keys(playersOnSameMap).length} other players`);
+    
+    // Send current tile state for this map
+    socket.emit('moveableTilesState', moveableTiles[data.map]);
     
     // Notify others on the same map about this player
     for (const id in players) {
         if (id !== socket.id && players[id].currentMap === data.map) {
             io.to(id).emit('newPlayer', players[socket.id]);
         }
+    }
+  });
+
+  // Client sends initial tile positions when joining a map
+  socket.on('initializeMoveableTiles', (data) => {
+    const mapName = players[socket.id]?.currentMap || 'map';
+    
+    // Only initialize if this map has no tiles yet
+    if (!moveableTiles[mapName] || Object.keys(moveableTiles[mapName]).length === 0) {
+      moveableTiles[mapName] = data.tiles;
+      console.log(`Initialized ${Object.keys(data.tiles).length} tiles for map: ${mapName}`);
     }
   });
 
@@ -121,49 +134,87 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('moveableTileMoved', (data) => {
+socket.on('moveableTileMoved', (data) => {
     if (!data || !data.old || !data.new || data.tileIndex === undefined) {
-      console.error('Invalid moveableTileMoved data:', data);
+      console.error('Invalid moveableTileMoved data');
       return;
     }
     
-    console.log(`📦 [${socket.id}] Tile moved from (${data.old.x},${data.old.y}) to (${data.new.x},${data.new.y})`);
-    
-    // Update server state
-    let originalTileId = null;
-    for (const id in moveableTiles) {
-        const tile = moveableTiles[id];
-        if (tile.x === data.old.x && tile.y === data.old.y) {
-            originalTileId = id;
-            break;
-        }
+    const mapName = players[socket.id]?.currentMap;
+    if (!mapName || !moveableTiles[mapName]) {
+      console.error('Invalid map for tile move');
+      return;
     }
     
-    if (!originalTileId) {
-        originalTileId = `${data.old.x},${data.old.y}`;
+    // Validate: check if tile exists at old position
+    const oldKey = `${data.old.x},${data.old.y}`;
+    const existingTile = moveableTiles[mapName][oldKey];
+    
+    if (!existingTile) {
+      console.warn(`Tile push rejected - no tile at (${data.old.x},${data.old.y})`);
+      // Send correction to client
+      socket.emit('tilePushRejected', { position: data.old });
+      return;
     }
     
-    moveableTiles[originalTileId] = {
+    // Validate: check if destination is already occupied
+    const newKey = `${data.new.x},${data.new.y}`;
+    if (moveableTiles[mapName][newKey]) {
+      console.warn(`Tile push rejected - destination occupied at (${data.new.x},${data.new.y})`);
+      socket.emit('tilePushRejected', { position: data.old });
+      return;
+    }
+    
+    // Server authorizes the move
+    delete moveableTiles[mapName][oldKey];
+    moveableTiles[mapName][newKey] = {
         x: data.new.x,
         y: data.new.y,
         tileIndex: data.tileIndex
     };
     
-    // Broadcast to ALL clients (including sender for consistency)
-    io.emit('moveableTileUpdated', data);
-  });
+    // Add the pusherId to the broadcast data
+    const broadcastData = {
+        ...data,
+        pusherId: socket.id  // Include the pusher's ID
+    };
+    
+    // Broadcast to ALL clients on this map (including sender for state sync)
+    for (const id in players) {
+      if (players[id].currentMap === mapName) {
+        io.to(id).emit('moveableTileUpdated', broadcastData);
+      }
+    }
+});
 
   socket.on('meow', () => {
-    io.emit('meow', socket.id);
+    const mapName = players[socket.id]?.currentMap;
+    if (mapName) {
+      // Only broadcast to players on same map
+      for (const id in players) {
+        if (players[id].currentMap === mapName) {
+          io.to(id).emit('meow', socket.id);
+        }
+      }
+    }
   });
 
   socket.on('disconnect', () => {
-    console.log(`❌ Player disconnected: ${socket.id}`);
+    console.log(`Player disconnected: ${socket.id}`);
+    const mapName = players[socket.id]?.currentMap;
     delete players[socket.id];
-    io.emit('playerDisconnected', socket.id);
+    
+    // Only notify players on the same map
+    if (mapName) {
+      for (const id in players) {
+        if (players[id].currentMap === mapName) {
+          io.to(id).emit('playerDisconnected', socket.id);
+        }
+      }
+    }
   });
 });
 
 server.listen(port, () => {
-  console.log(`🚀 Server listening at http://localhost:${port}`);
+  console.log(`Server listening at http://localhost:${port}`);
 });

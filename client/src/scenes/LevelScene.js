@@ -47,20 +47,20 @@ export class LevelScene extends Phaser.Scene {
         this.map = this.make.tilemap({ key: this.currentMap });
         const tileset = this.map.addTilesetImage('spritesheet', 'tiles');
         
-        this.map.createLayer('Ground', tileset, 0, 0).setDepth(DEPTHS.GROUND).setCullPadding(4,4);
+        this.map.createLayer('Ground', tileset, 0, 0).setDepth(DEPTHS.GROUND).setCullPadding(4, 4);
 
         if (this.map.getLayer('Moveable')) {
-            this.moveableLayer = this.map.createLayer('Moveable', tileset, 0, 0).setDepth(DEPTHS.MOVEABLE).setCullPadding(4,4);
+            this.moveableLayer = this.map.createLayer('Moveable', tileset, 0, 0).setDepth(DEPTHS.MOVEABLE).setCullPadding(4, 4);;
         } else {
             this.moveableLayer = null;
         }
         
         if (this.map.getLayer('Bridge')) {
-            this.map.createLayer('Bridge', tileset, 0, 0).setDepth(DEPTHS.BRIDGE).setCullPadding(4,4);
+            this.map.createLayer('Bridge', tileset, 0, 0).setDepth(DEPTHS.BRIDGE).setCullPadding(4, 4);;
         }
         
         if (this.map.getLayer('Foliage')) {
-            this.map.createLayer('Foliage', tileset, 0, 0).setDepth(DEPTHS.FOLIAGE).setCullPadding(4,4);
+            this.map.createLayer('Foliage', tileset, 0, 0).setDepth(DEPTHS.FOLIAGE).setCullPadding(4, 4);;
         }
         
         this.otherPlayers = this.add.group();
@@ -97,6 +97,25 @@ export class LevelScene extends Phaser.Scene {
             });
         }
 
+        // Send initial tile positions to server
+        if (this.moveableLayer) {
+            const initialTiles = {};
+            this.moveableLayer.forEachTile(tile => {
+                if (tile && tile.index !== -1) {
+                    const key = `${tile.x},${tile.y}`;
+                    initialTiles[key] = {
+                        x: tile.x,
+                        y: tile.y,
+                        tileIndex: tile.index
+                    };
+                }
+            });
+            
+            if (Object.keys(initialTiles).length > 0) {
+                this.socket.emit('initializeMoveableTiles', { tiles: initialTiles });
+            }
+        }
+
         // Notify server of our current map immediately after player is created
         this.socket.emit('playerChangedMap', {
             map: this.currentMap,
@@ -115,6 +134,32 @@ export class LevelScene extends Phaser.Scene {
                 }
             });
         });
+
+        this.socket.on('moveableTilesState', (tiles) => {
+    if (!this.moveableLayer || !tiles) return;
+    
+    // Track which tiles we've received from server to avoid duplicates
+    if (!this.serverTileState) {
+        this.serverTileState = new Map();
+    }
+    
+    // Clear existing tiles
+    this.moveableLayer.forEachTile(tile => {
+        if (tile && tile.index !== -1) {
+            this.moveableLayer.removeTileAt(tile.x, tile.y);
+        }
+    });
+    
+    // Place tiles from server state and track them
+    Object.values(tiles).forEach(tileData => {
+        if (tileData && tileData.tileIndex !== undefined) {
+            this.moveableLayer.putTileAt(tileData.tileIndex, tileData.x, tileData.y);
+            // Track this tile position
+            const key = `${tileData.x},${tileData.y}`;
+            this.serverTileState.set(key, tileData.tileIndex);
+        }
+    });
+});
 
         this.socket.on('newPlayer', (playerInfo) => {
             if (playerInfo.playerId === this.socket.id) return;
@@ -153,22 +198,38 @@ export class LevelScene extends Phaser.Scene {
             });
         });
 
-        this.socket.on('moveableTileUpdated', (data) => {
-            if (this.player && this.moveableLayer) {
-                this.player.animateTilePush(data);
-            }
-        });
-
-        this.socket.on('meow', (playerId) => {
-            this.sound.play('meow_sound');
-        });
+       this.socket.on('moveableTileUpdated', (data) => {
+    if (!this.player || !this.moveableLayer) return;
+    
+    // Initialize server state tracking if needed
+    if (!this.serverTileState) {
+        this.serverTileState = new Map();
+    }
+    
+    // Update our server state tracking
+    const oldKey = `${data.old.x},${data.old.y}`;
+    const newKey = `${data.new.x},${data.new.y}`;
+    
+    // Remove from old position in tracking
+    this.serverTileState.delete(oldKey);
+    // Add to new position in tracking
+    this.serverTileState.set(newKey, data.tileIndex);
+    
+    // The player's animateTilePush method will handle the animation
+    // It will check pusherId to determine if this is local or remote
+    this.player.animateTilePush(data);
+});
     }
 
     shutdown() {
-        if (this.socket) {
-            this.socket.removeAllListeners();
-        }
+    if (this.socket) {
+        this.socket.removeAllListeners();
     }
+    // Clear server state tracking
+    if (this.serverTileState) {
+        this.serverTileState.clear();
+    }
+}
 
     changeLevel(mapKey, spawnPos) {
         if (this.isTeleporting) return;
