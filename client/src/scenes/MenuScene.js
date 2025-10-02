@@ -5,7 +5,7 @@ export class MenuScene extends Phaser.Scene {
         super({ key: 'MenuScene' });
     }
 
-    create() {
+   create() {
         const { width, height } = this.cameras.main;
 
         // Title
@@ -14,25 +14,23 @@ export class MenuScene extends Phaser.Scene {
             fill: '#ffffff' 
         }).setOrigin(0.5);
 
-        // New Game button
+        // --- "New Game" button is now a placeholder ---
         const newGameButton = this.add.text(width / 2, height / 2, 'New Game', { 
             fontSize: '32px', 
             fill: '#00ff00' 
-        }).setOrigin(0.5).setInteractive();
+        }).setOrigin(0.5).setAlpha(0.5); // Set to be semi-transparent
 
-        newGameButton.on('pointerdown', () => {
-            // This can be a different map later
-            this.scene.start('LevelScene', { map: 'map', spawnPos: { x: 13, y: 11 } });
-        });
+        // We can add a pointerdown event later when it's ready
+        // newGameButton.setInteractive().on('pointerdown', () => { ... });
 
-        // Tutorial button - NOW loads 'map' (frmt.json)
+
+        // Tutorial button
         const tutorialButton = this.add.text(width / 2, height / 2 + 50, 'Tutorial', {
             fontSize: '32px',
             fill: '#00ffff'
         }).setOrigin(0.5).setInteractive();
 
         tutorialButton.on('pointerdown', () => {
-            // Start the level using the 'map' key, which loads frmt.json
             this.scene.start('LevelScene', { map: 'map', spawnPos: { x: 13, y: 11 } });
         });
 
@@ -43,7 +41,6 @@ export class MenuScene extends Phaser.Scene {
         }).setOrigin(0.5).setInteractive();
 
         continueButton.on('pointerdown', () => {
-            // This will later load from GameState
             this.scene.start('LevelScene', { map: 'map', spawnPos: { x: 13, y: 11 } });
         });
     }
